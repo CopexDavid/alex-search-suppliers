@@ -17,7 +17,7 @@ import {
 const navigation = [
   {
     name: "Дашборд",
-    href: "/dashboard",
+    href: "/",
     icon: LayoutDashboard
   },
   {
@@ -63,7 +63,10 @@ export function Navigation() {
   return (
     <nav className="flex flex-col space-y-1">
       {navigation.map((item) => {
-        const isActive = pathname === item.href
+        // Для дашборда считаем активным как "/" так и "/dashboard"
+        const isActive = item.href === "/" 
+          ? (pathname === "/" || pathname === "/dashboard")
+          : pathname === item.href
         return (
           <Link
             key={item.href}

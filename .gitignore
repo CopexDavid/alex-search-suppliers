@@ -29,6 +29,13 @@ yarn-error.log*
 .env.test
 .env.production
 
+# Google service account keys
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!components.json
+
 # vercel
 .vercel
 
@@ -43,3 +50,8 @@ next-env.d.ts
 # Logs
 logs
 *.log 
+/lib/generated/prisma
+
+# WhatsApp session data
+.wwebjs_auth
+.wwebjs_cache

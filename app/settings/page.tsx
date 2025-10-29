@@ -1,4 +1,5 @@
 "use client"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -17,9 +18,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
-import { Plus, Edit, Trash2, Users, FileText, Settings, Upload, MessageSquare } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Plus, Edit, Trash2, Users, FileText, Settings, Upload, MessageSquare, Loader2, CheckCircle, XCircle, QrCode, Phone, Clock } from "lucide-react"
 
 export default function SettingsPage() {
+  // WhatsApp state
+  const [whatsappStatus, setWhatsappStatus] = useState<string>('disconnected')
+  const [whatsappQR, setWhatsappQR] = useState<string | null>(null)
+  const [whatsappPhone, setWhatsappPhone] = useState<string | null>(null)
+  const [whatsappError, setWhatsappError] = useState<string | null>(null)
+  const [isInitializing, setIsInitializing] = useState(false)
+  const [isDisconnecting, setIsDisconnecting] = useState(false)
+  const [isClearingSession, setIsClearingSession] = useState(false)
+  const [qrRefreshTimer, setQrRefreshTimer] = useState<number>(0)
+
   const users = [
     {
       id: 1,
@@ -88,6 +100,144 @@ export default function SettingsPage() {
     } as const
 
     return <Badge variant={variants[role as keyof typeof variants]}>{role}</Badge>
+  }
+
+  // WhatsApp functions
+  const checkWhatsAppStatus = async () => {
+    try {
+      const response = await fetch('/api/whatsapp/status')
+      if (response.ok) {
+        const data = await response.json()
+        setWhatsappStatus(data.status.status)
+        setWhatsappPhone(data.status.phoneNumber)
+        setWhatsappError(data.status.error)
+        
+        // Если нужен QR код - получаем его
+        if (data.status.status === 'qr_ready') {
+          fetchQRCode()
+        }
+      }
+    } catch (error) {
+      console.error('Error checking WhatsApp status:', error)
+    }
+  }
+
+  const fetchQRCode = async () => {
+    try {
+      const response = await fetch('/api/whatsapp/qr')
+      if (response.ok) {
+        const data = await response.json()
+        setWhatsappQR(data.qrCode)
+      }
+    } catch (error) {
+      console.error('Error fetching QR code:', error)
+    }
+  }
+
+  const initializeWhatsApp = async () => {
+    setIsInitializing(true)
+    setWhatsappError(null)
+    try {
+      const response = await fetch('/api/whatsapp/init', { method: 'POST' })
+      if (response.ok) {
+        const data = await response.json()
+        setWhatsappStatus(data.status.status)
+      } else {
+        throw new Error('Failed to initialize WhatsApp')
+      }
+    } catch (error: any) {
+      setWhatsappError(error.message)
+    } finally {
+      setIsInitializing(false)
+    }
+  }
+
+  const disconnectWhatsApp = async () => {
+    setIsDisconnecting(true)
+    try {
+      const response = await fetch('/api/whatsapp/disconnect', { method: 'POST' })
+      if (response.ok) {
+        setWhatsappStatus('disconnected')
+        setWhatsappQR(null)
+        setWhatsappPhone(null)
+        setWhatsappError(null)
+      }
+    } catch (error: any) {
+      setWhatsappError(error.message)
+    } finally {
+      setIsDisconnecting(false)
+    }
+  }
+
+  const clearWhatsAppSession = async () => {
+    if (!confirm('Вы уверены, что хотите полностью очистить сессию WhatsApp? Это удалит все сохраненные данные подключения.')) {
+      return
+    }
+    
+    setIsClearingSession(true)
+    setWhatsappError(null)
+    try {
+      const response = await fetch('/api/whatsapp/clear-session', { method: 'POST' })
+      if (response.ok) {
+        setWhatsappStatus('disconnected')
+        setWhatsappQR(null)
+        setWhatsappPhone(null)
+        setWhatsappError(null)
+        // Показываем успешное сообщение
+        alert('Сессия WhatsApp полностью очищена. Теперь можно создать новое подключение.')
+      } else {
+        const data = await response.json()
+        throw new Error(data.error || 'Failed to clear WhatsApp session')
+      }
+    } catch (error: any) {
+      setWhatsappError(error.message)
+    } finally {
+      setIsClearingSession(false)
+    }
+  }
+
+  // Poll WhatsApp status on mount (более частое обновление для QR)
+  useEffect(() => {
+    checkWhatsAppStatus()
+    // Используем более частый интервал для QR кода
+    const interval = setInterval(checkWhatsAppStatus, 2000) // каждые 2 секунды
+    return () => clearInterval(interval)
+  }, [])
+  
+  // Дополнительный useEffect для автообновления QR кода и таймера
+  useEffect(() => {
+    if (whatsappStatus === 'qr_ready') {
+      setQrRefreshTimer(60) // Устанавливаем таймер на 60 секунд
+      
+      const qrInterval = setInterval(fetchQRCode, 3000) // обновляем QR каждые 3 секунды
+      const timerInterval = setInterval(() => {
+        setQrRefreshTimer(prev => Math.max(0, prev - 1))
+      }, 1000)
+      
+      return () => {
+        clearInterval(qrInterval)
+        clearInterval(timerInterval)
+      }
+    } else {
+      setQrRefreshTimer(0)
+    }
+  }, [whatsappStatus])
+
+  const getWhatsAppStatusBadge = () => {
+    switch (whatsappStatus) {
+      case 'ready':
+        return <Badge className="bg-green-500"><CheckCircle className="h-3 w-3 mr-1" /> Подключено</Badge>
+      case 'qr_ready':
+        return <Badge className="bg-blue-500"><QrCode className="h-3 w-3 mr-1" /> Ожидание сканирования</Badge>
+      case 'connecting':
+        return <Badge className="bg-yellow-500"><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Подключение...</Badge>
+      case 'authenticated':
+        return <Badge className="bg-blue-500"><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Аутентификация...</Badge>
+      case 'error':
+        return <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" /> Ошибка</Badge>
+      default:
+        return <Badge variant="outline"><XCircle className="h-3 w-3 mr-1" /> Отключено</Badge>
+    }
   }
 
   return (
@@ -361,31 +511,203 @@ export default function SettingsPage() {
         <TabsContent value="integrations" className="space-y-4">
           <div className="grid gap-6 md:grid-cols-2">
             {/* WhatsApp */}
-            <Card>
+            <Card className="md:col-span-2">
               <CardHeader>
-                <CardTitle className="flex items-center">
-                  <MessageSquare className="mr-2 h-5 w-5" />
-                  WhatsApp интеграция
-                </CardTitle>
-                <CardDescription>Настройка отправки сообщений через WhatsApp</CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center">
+                      <MessageSquare className="mr-2 h-5 w-5" />
+                      WhatsApp интеграция
+                    </CardTitle>
+                    <CardDescription>Подключите WhatsApp для автоматической отправки сообщений поставщикам</CardDescription>
+                  </div>
+                  {getWhatsAppStatusBadge()}
+                </div>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label>API токен</Label>
-                  <Input type="password" placeholder="Введите токен WhatsApp API" />
+              <CardContent className="space-y-6">
+                {/* Информация о подключении */}
+                {whatsappPhone && (
+                  <Alert className="bg-green-50 border-green-200">
+                    <Phone className="h-4 w-4 text-green-600" />
+                    <AlertDescription className="text-green-800">
+                      Подключен номер: <strong>+{whatsappPhone}</strong>
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {whatsappError && (
+                  <Alert variant="destructive">
+                    <XCircle className="h-4 w-4" />
+                    <AlertDescription>{whatsappError}</AlertDescription>
+                  </Alert>
+                )}
+
+                {/* QR Code */}
+                {whatsappStatus === 'qr_ready' && whatsappQR && (
+                  <div className="flex flex-col items-center space-y-4 p-6 border rounded-lg bg-muted/30">
+                    <div className="text-center space-y-2">
+                      <h3 className="font-semibold text-lg">Отсканируйте QR код</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Откройте WhatsApp на телефоне → Настройки → Связанные устройства → Связать устройство
+                      </p>
+                      {qrRefreshTimer > 0 && (
+                        <Badge variant="outline" className="mt-2">
+                          <Clock className="h-3 w-3 mr-1" />
+                          QR активен: {qrRefreshTimer}с
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="bg-white p-4 rounded-lg shadow-sm">
+                      <img 
+                        src={whatsappQR} 
+                        alt="WhatsApp QR Code" 
+                        className="w-64 h-64"
+                        key={whatsappQR} // Force re-render on QR change
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">QR код автоматически обновляется каждые 3 секунды</p>
+                  </div>
+                )}
+
+                {/* Статус подключения */}
+                {whatsappStatus === 'connecting' && (
+                  <div className="flex flex-col items-center space-y-4 p-6 border rounded-lg bg-muted/30">
+                    <Loader2 className="h-12 w-12 animate-spin text-primary" />
+                    <p className="text-sm text-muted-foreground">Инициализация WhatsApp клиента...</p>
+                  </div>
+                )}
+
+                {whatsappStatus === 'authenticated' && (
+                  <div className="flex flex-col items-center space-y-4 p-6 border rounded-lg bg-muted/30">
+                    <Loader2 className="h-12 w-12 animate-spin text-primary" />
+                    <p className="text-sm text-muted-foreground">Завершение аутентификации...</p>
+                  </div>
+                )}
+
+                {whatsappStatus === 'ready' && (
+                  <Alert className="bg-green-50 border-green-200">
+                    <CheckCircle className="h-4 w-4 text-green-600" />
+                    <AlertDescription className="text-green-800">
+                      <strong>WhatsApp успешно подключен!</strong><br />
+                      Теперь вы можете отправлять сообщения поставщикам автоматически.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {/* Кнопки управления */}
+                <div className="flex gap-3">
+                  {whatsappStatus === 'disconnected' && (
+                    <Button 
+                      onClick={initializeWhatsApp}
+                      disabled={isInitializing}
+                      className="flex-1"
+                    >
+                      {isInitializing ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Инициализация...
+                        </>
+                      ) : (
+                        <>
+                          <MessageSquare className="mr-2 h-4 w-4" />
+                          Подключить WhatsApp
+                        </>
+                      )}
+                    </Button>
+                  )}
+
+                  {whatsappStatus === 'ready' && (
+                    <>
+                      <Button 
+                        onClick={disconnectWhatsApp}
+                        disabled={isDisconnecting || isClearingSession}
+                        variant="destructive"
+                        className="flex-1"
+                      >
+                        {isDisconnecting ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Отключение...
+                          </>
+                        ) : (
+                          <>
+                            <XCircle className="mr-2 h-4 w-4" />
+                            Отключить WhatsApp
+                          </>
+                        )}
+                      </Button>
+                      <Button 
+                        onClick={clearWhatsAppSession}
+                        disabled={isClearingSession || isDisconnecting}
+                        variant="outline"
+                        size="sm"
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        {isClearingSession ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Очистка...
+                          </>
+                        ) : (
+                          <>
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Сменить аккаунт
+                          </>
+                        )}
+                      </Button>
+                    </>
+                  )}
+
+                  {(whatsappStatus === 'qr_ready' || whatsappStatus === 'connecting') && (
+                    <Button 
+                      onClick={disconnectWhatsApp}
+                      disabled={isDisconnecting}
+                      variant="outline"
+                      className="flex-1"
+                    >
+                      Отменить
+                    </Button>
+                  )}
                 </div>
 
-                <div className="space-y-2">
-                  <Label>Номер телефона</Label>
-                  <Input placeholder="+7 777 123 4567" />
-                </div>
+                {/* Дополнительные действия */}
+                {(whatsappStatus === 'disconnected' || whatsappStatus === 'error') && (
+                  <div className="pt-4 border-t">
+                    <Button 
+                      onClick={clearWhatsAppSession}
+                      disabled={isClearingSession}
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-red-600 hover:text-red-700 hover:bg-red-50"
+                    >
+                      {isClearingSession ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Очистка сессии...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Очистить сессию полностью
+                        </>
+                      )}
+                    </Button>
+                    <p className="text-xs text-muted-foreground mt-2 text-center">
+                      Удаляет все сохраненные данные подключения WhatsApp
+                    </p>
+                  </div>
+                )}
 
-                <div className="flex items-center space-x-2">
-                  <Switch id="whatsapp-enabled" />
-                  <Label htmlFor="whatsapp-enabled">Включить WhatsApp интеграцию</Label>
+                {/* Информация */}
+                <div className="text-sm text-muted-foreground space-y-2 pt-4 border-t">
+                  <p><strong>Как это работает:</strong></p>
+                  <ul className="list-disc list-inside space-y-1 ml-2">
+                    <li>Нажмите "Подключить WhatsApp"</li>
+                    <li>Отсканируйте QR код через мобильное приложение WhatsApp</li>
+                    <li>После подключения сессия сохраняется автоматически</li>
+                    <li>При следующем запуске переподключение не потребуется</li>
+                  </ul>
                 </div>
-
-                <Button className="w-full">Сохранить настройки WhatsApp</Button>
               </CardContent>
             </Card>
 

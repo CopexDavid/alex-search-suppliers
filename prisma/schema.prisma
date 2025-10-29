@@ -1,0 +1,269 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String     @id @default(uuid())
+  email     String     @unique
+  password  String
+  name      String
+  role      Role       @default(VIEWER)
+  isActive  Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  approvals Approval[]
+  auditLogs AuditLog[]
+  requests  Request[]
+  sessions  Session[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model Request {
+  id            String            @id @default(uuid())
+  requestNumber String            @unique
+  creatorId     String
+  status        RequestStatus     @default(UPLOADED)
+  deadline      DateTime
+  budget        Float?
+  currency      String            @default("KZT")
+  description   String?
+  originalFile  String?
+  priority      Int               @default(0)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  approvals     Approval[]
+  positions     Position[]
+  quotes        Quote[]
+  suppliers     RequestSupplier[]
+  creator       User              @relation(fields: [creatorId], references: [id])
+  tasks         Task[]
+
+  @@map("requests")
+}
+
+model Position {
+  id          String      @id @default(uuid())
+  requestId   String
+  sku         String?
+  name        String
+  description String?
+  quantity    Float
+  unit        String
+  createdAt   DateTime    @default(now())
+  request     Request     @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  quoteItems  QuoteItem[]
+
+  @@map("positions")
+}
+
+model Supplier {
+  id              String            @id @default(uuid())
+  name            String
+  inn             String?           @unique
+  address         String?
+  rating          Float             @default(0)
+  contractValidTo DateTime?
+  tags            String[]
+  isActive        Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  description     String?
+  email           String?
+  phone           String?
+  website         String?
+  whatsapp        String?
+  contacts        Contact[]
+  quotes          Quote[]
+  requests        RequestSupplier[]
+
+  @@map("suppliers")
+}
+
+model Contact {
+  id         String      @id @default(uuid())
+  supplierId String
+  type       ContactType
+  value      String
+  confidence Float       @default(1.0)
+  isPrimary  Boolean     @default(false)
+  createdAt  DateTime    @default(now())
+  supplier   Supplier    @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@map("contacts")
+}
+
+model RequestSupplier {
+  id               String    @id @default(uuid())
+  requestId        String
+  supplierId       String
+  requestSent      Boolean   @default(false)
+  requestSentAt    DateTime?
+  responseReceived Boolean   @default(false)
+  responseAt       DateTime?
+  channel          String?
+  createdAt        DateTime  @default(now())
+  foundVia         String?
+  status           String    @default("PENDING")
+  updatedAt        DateTime  @updatedAt
+  request          Request   @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  supplier         Supplier  @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@unique([requestId, supplierId])
+  @@map("request_suppliers")
+}
+
+model Quote {
+  id                String      @id @default(uuid())
+  requestId         String
+  supplierId        String
+  totalPrice        Float?
+  currency          String      @default("KZT")
+  deliveryTerm      String?
+  paymentTerm       String?
+  originalFile      String?
+  isParsed          Boolean     @default(false)
+  needsManualReview Boolean     @default(false)
+  score             Float?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  items             QuoteItem[]
+  request           Request     @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  supplier          Supplier    @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@map("quotes")
+}
+
+model QuoteItem {
+  id         String    @id @default(uuid())
+  quoteId    String
+  positionId String?
+  name       String
+  quantity   Float
+  unit       String
+  price      Float
+  totalPrice Float
+  createdAt  DateTime  @default(now())
+  position   Position? @relation(fields: [positionId], references: [id])
+  quote      Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@map("quote_items")
+}
+
+model Approval {
+  id              String    @id @default(uuid())
+  requestId       String
+  approverId      String
+  isApproved      Boolean?
+  comment         String?
+  selectedQuoteId String?
+  createdAt       DateTime  @default(now())
+  decidedAt       DateTime?
+  approver        User      @relation(fields: [approverId], references: [id])
+  request         Request   @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@map("approvals")
+}
+
+model Task {
+  id          String     @id @default(uuid())
+  requestId   String?
+  type        String
+  status      TaskStatus @default(PENDING)
+  priority    Int        @default(0)
+  payload     Json?
+  result      Json?
+  error       String?
+  attempts    Int        @default(0)
+  maxAttempts Int        @default(3)
+  createdAt   DateTime   @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+  request     Request?   @relation(fields: [requestId], references: [id])
+
+  @@map("tasks")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  entity    String?
+  entityId  String?
+  details   Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+model SystemSetting {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     String
+  type      String   @default("string")
+  updatedAt DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+model MessageTemplate {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  channel   String
+  subject   String?
+  body      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("message_templates")
+}
+
+enum Role {
+  ADMIN
+  PURCHASER
+  MANAGER
+  VIEWER
+}
+
+enum RequestStatus {
+  UPLOADED
+  SEARCHING
+  PENDING_QUOTES
+  COMPARING
+  APPROVED
+  REJECTED
+  COMPLETED
+  ARCHIVED
+}
+
+enum ContactType {
+  EMAIL
+  PHONE
+  WHATSAPP
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}

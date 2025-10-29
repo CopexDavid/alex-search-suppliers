@@ -376,6 +376,19 @@ export default function SearchProcessPage() {
                         <div className="flex-1">
                           <h3 className="font-semibold text-lg">{company.companyName || company.title || 'Компания'}</h3>
                           <p className="text-sm text-muted-foreground mb-2">{company.description || company.snippet}</p>
+                          
+                          {/* Отображение цен */}
+                          {(company.prices && company.prices.length > 0) && (
+                            <div className="mb-2 flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-medium text-muted-foreground">Цены:</span>
+                              {company.prices.slice(0, 3).map((price, idx) => (
+                                <Badge key={idx} variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                                  💰 {price}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                          
                           <div className="flex items-center space-x-4 text-sm text-muted-foreground">
                             {company.address && (
                             <div className="flex items-center space-x-1">

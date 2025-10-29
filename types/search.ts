@@ -9,6 +9,8 @@ export interface SearchResult {
   email?: string;
   address?: string;
   foundAt?: string;
+  price?: string | null; // Цена из сниппета Google
+  prices?: string[]; // Массив цен с сайта
 }
 
 export interface SearchResponse {

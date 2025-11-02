@@ -1,7 +1,7 @@
 // API для отключения WhatsApp клиента
 import { NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import whatsappService from '@/lib/whatsapp'
+import whapiService from '@/lib/whapi'
 
 /**
  * POST /api/whatsapp/disconnect
@@ -16,11 +16,11 @@ export async function POST(request: Request) {
     
     console.log('🔌 Disconnecting WhatsApp...')
     
-    await whatsappService.disconnect()
+    await whapiService.disconnect()
     
     if (clearSession) {
       console.log('🗑️ Clearing session data...')
-      await whatsappService.clearSession()
+      await whapiService.clearSession()
     }
     
     return NextResponse.json({

@@ -66,8 +66,12 @@ export async function POST(
       console.log('='.repeat(60))
       
       try {
-        // Вызываем API для поиска по конкретной позиции
-        const searchUrl = `http://localhost:3000/api/requests/${requestId}/positions/${position.id}/search`
+        // Вызываем API для поиска по конкретной позиции (ВСЕГДА локально для внутренних вызовов)
+        const baseUrl = 'http://127.0.0.1:3000' // Принудительно используем IPv4 для внутренних API вызовов
+        const searchUrl = `${baseUrl}/api/requests/${requestId}/positions/${position.id}/search`
+        
+        console.log(`🌐 Calling: ${searchUrl}`)
+        console.log(`🍪 Cookie: ${request.headers.get('cookie') ? 'SET' : 'NOT SET'}`)
         
         const response = await fetch(searchUrl, {
           method: 'POST',
@@ -78,13 +82,18 @@ export async function POST(
           },
         })
         
+        console.log(`📡 Response status: ${response.status}`)
+        
         if (response.ok) {
           const data = await response.json()
+          console.log(`📄 Response data:`, data)
           const suppliersFound = data.data?.suppliersFound || 0
           totalSuppliersFound += suppliersFound
           console.log(`✅ Position "${position.name}": found ${suppliersFound} suppliers`)
         } else {
+          const errorText = await response.text()
           console.error(`❌ Error searching for position "${position.name}":`, response.status)
+          console.error(`❌ Error details:`, errorText)
         }
         
       } catch (error) {

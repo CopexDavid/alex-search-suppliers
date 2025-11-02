@@ -19,49 +19,60 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Plus, Edit, Trash2, Users, FileText, Settings, Upload, MessageSquare, Loader2, CheckCircle, XCircle, QrCode, Phone, Clock } from "lucide-react"
+import { Plus, Edit, Trash2, Users, FileText, Settings, Upload, MessageSquare, Loader2, CheckCircle, XCircle, QrCode, Phone, Clock, Brain, Save, RefreshCw } from "lucide-react"
+
+interface User {
+  id: string
+  email: string
+  name: string
+  role: string
+  isActive: boolean
+  createdAt: string
+  lastLogin: string | null
+}
 
 export default function SettingsPage() {
-  // WhatsApp state
+  // Users state
+  const [users, setUsers] = useState<User[]>([])
+  const [usersLoading, setUsersLoading] = useState(true)
+  const [usersError, setUsersError] = useState("")
+
+  // User form state
+  const [userFormData, setUserFormData] = useState({
+    email: "",
+    password: "",
+    name: "",
+    role: "",
+    isActive: true,
+  })
+  const [userFormLoading, setUserFormLoading] = useState(false)
+  const [userFormError, setUserFormError] = useState("")
+  const [editingUser, setEditingUser] = useState<User | null>(null)
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+
+  // WhatsApp (Whapi.Cloud) state
   const [whatsappStatus, setWhatsappStatus] = useState<string>('disconnected')
   const [whatsappQR, setWhatsappQR] = useState<string | null>(null)
   const [whatsappPhone, setWhatsappPhone] = useState<string | null>(null)
   const [whatsappError, setWhatsappError] = useState<string | null>(null)
-  const [isInitializing, setIsInitializing] = useState(false)
-  const [isDisconnecting, setIsDisconnecting] = useState(false)
-  const [isClearingSession, setIsClearingSession] = useState(false)
-  const [qrRefreshTimer, setQrRefreshTimer] = useState<number>(0)
-
-  const users = [
-    {
-      id: 1,
-      login: "manager@alex.kz",
-      role: "Менеджер",
-      status: "Активен",
-      lastLogin: "2024-01-15 17:30",
-    },
-    {
-      id: 2,
-      login: "initiator@alex.kz",
-      role: "Инициатор",
-      status: "Активен",
-      lastLogin: "2024-01-15 15:20",
-    },
-    {
-      id: 3,
-      login: "admin@alex.kz",
-      role: "Администратор",
-      status: "Активен",
-      lastLogin: "2024-01-15 16:45",
-    },
-    {
-      id: 4,
-      login: "blocked@alex.kz",
-      role: "Менеджер",
-      status: "Заблокирован",
-      lastLogin: "2024-01-10 12:00",
-    },
-  ]
+  const [whapiToken, setWhapiToken] = useState<string>('')
+  const [tokenSaving, setTokenSaving] = useState(false)
+  const [hasToken, setHasToken] = useState(false)
+  const [maskedToken, setMaskedToken] = useState<string | null>(null)
+  const [testPhone, setTestPhone] = useState('+77075112805')
+  const [testSending, setTestSending] = useState(false)
+  const [webhookUrl, setWebhookUrl] = useState('')
+  const [webhookSetting, setWebhookSetting] = useState(false)
+  const [currentWebhook, setCurrentWebhook] = useState<string | null>(null)
+  const [recommendedWebhookUrl, setRecommendedWebhookUrl] = useState<string | null>(null)
+  
+  // OpenAI настройки
+  const [openaiApiKey, setOpenaiApiKey] = useState('')
+  const [openaiAssistantId, setOpenaiAssistantId] = useState('')
+  const [openaiSaving, setOpenaiSaving] = useState(false)
+  const [hasOpenaiSettings, setHasOpenaiSettings] = useState(false)
+  const [maskedOpenaiKey, setMaskedOpenaiKey] = useState<string | null>(null)
 
   const templates = [
     {
@@ -93,16 +104,204 @@ export default function SettingsPage() {
   }
 
   const getRoleBadge = (role: string) => {
-    const variants = {
-      Администратор: "default",
-      Менеджер: "secondary",
-      Инициатор: "outline",
+    const roleNames = {
+      ADMIN: "Администратор",
+      PURCHASER: "Закупщик", 
+      MANAGER: "Руководитель",
+      VIEWER: "Наблюдатель",
     } as const
 
-    return <Badge variant={variants[role as keyof typeof variants]}>{role}</Badge>
+    const variants = {
+      ADMIN: "default",
+      PURCHASER: "secondary",
+      MANAGER: "outline",
+      VIEWER: "outline",
+    } as const
+
+    const roleName = roleNames[role as keyof typeof roleNames] || role
+    const variant = variants[role as keyof typeof variants] || "outline"
+
+    return <Badge variant={variant}>{roleName}</Badge>
   }
 
-  // WhatsApp functions
+  // Функции для работы с пользователями
+  const loadUsers = async () => {
+    setUsersLoading(true)
+    setUsersError("")
+    
+    try {
+      const response = await fetch('/api/users', {
+        credentials: 'include',
+      })
+      
+      if (!response.ok) {
+        throw new Error('Ошибка при загрузке пользователей')
+      }
+      
+      const data = await response.json()
+      setUsers(data.data || [])
+    } catch (error: any) {
+      console.error('Load users error:', error)
+      setUsersError(error.message || 'Не удалось загрузить пользователей')
+    } finally {
+      setUsersLoading(false)
+    }
+  }
+
+  const createUser = async () => {
+    if (!userFormData.email || !userFormData.password || !userFormData.name || !userFormData.role) {
+      setUserFormError("Заполните все обязательные поля")
+      return
+    }
+
+    setUserFormLoading(true)
+    setUserFormError("")
+
+    try {
+      const response = await fetch('/api/users', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(userFormData),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Ошибка при создании пользователя')
+      }
+
+      // Обновляем список пользователей
+      await loadUsers()
+      
+      // Сбрасываем форму и закрываем диалог
+      setUserFormData({
+        email: "",
+        password: "",
+        name: "",
+        role: "",
+        isActive: true,
+      })
+      setCreateDialogOpen(false)
+    } catch (error: any) {
+      console.error('Create user error:', error)
+      setUserFormError(error.message)
+    } finally {
+      setUserFormLoading(false)
+    }
+  }
+
+  const updateUser = async () => {
+    if (!editingUser || !userFormData.email || !userFormData.name || !userFormData.role) {
+      setUserFormError("Заполните все обязательные поля")
+      return
+    }
+
+    setUserFormLoading(true)
+    setUserFormError("")
+
+    try {
+      const updateData = {
+        email: userFormData.email,
+        name: userFormData.name,
+        role: userFormData.role,
+        isActive: userFormData.isActive,
+      }
+
+      // Добавляем пароль только если он указан
+      if (userFormData.password) {
+        (updateData as any).password = userFormData.password
+      }
+
+      const response = await fetch(`/api/users/${editingUser.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(updateData),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Ошибка при обновлении пользователя')
+      }
+
+      // Обновляем список пользователей
+      await loadUsers()
+      
+      // Сбрасываем форму и закрываем диалог
+      setUserFormData({
+        email: "",
+        password: "",
+        name: "",
+        role: "",
+        isActive: true,
+      })
+      setEditingUser(null)
+      setEditDialogOpen(false)
+    } catch (error: any) {
+      console.error('Update user error:', error)
+      setUserFormError(error.message)
+    } finally {
+      setUserFormLoading(false)
+    }
+  }
+
+  const deleteUser = async (userId: string, userEmail: string) => {
+    if (!confirm(`Вы уверены, что хотите удалить пользователя ${userEmail}?`)) {
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/users/${userId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Ошибка при удалении пользователя')
+      }
+
+      // Обновляем список пользователей
+      await loadUsers()
+    } catch (error: any) {
+      console.error('Delete user error:', error)
+      alert(`Ошибка при удалении пользователя: ${error.message}`)
+    }
+  }
+
+  const openEditDialog = (user: User) => {
+    setEditingUser(user)
+    setUserFormData({
+      email: user.email,
+      password: "", // пароль не заполняем при редактировании
+      name: user.name,
+      role: user.role,
+      isActive: user.isActive,
+    })
+    setUserFormError("")
+    setEditDialogOpen(true)
+  }
+
+  const openCreateDialog = () => {
+    setUserFormData({
+      email: "",
+      password: "",
+      name: "",
+      role: "",
+      isActive: true,
+    })
+    setUserFormError("")
+    setCreateDialogOpen(true)
+  }
+
+  // WhatsApp (Whapi.Cloud) functions
   const checkWhatsAppStatus = async () => {
     try {
       const response = await fetch('/api/whatsapp/status')
@@ -111,117 +310,317 @@ export default function SettingsPage() {
         setWhatsappStatus(data.status.status)
         setWhatsappPhone(data.status.phoneNumber)
         setWhatsappError(data.status.error)
-        
-        // Если нужен QR код - получаем его
-        if (data.status.status === 'qr_ready') {
-          fetchQRCode()
-        }
+        setWhatsappQR(data.status.qrCode)
       }
     } catch (error) {
       console.error('Error checking WhatsApp status:', error)
     }
   }
 
-  const fetchQRCode = async () => {
+  const loadWhapiToken = async () => {
     try {
-      const response = await fetch('/api/whatsapp/qr')
+      const response = await fetch('/api/settings/whapi-token', {
+        credentials: 'include'
+      })
+      
       if (response.ok) {
         const data = await response.json()
-        setWhatsappQR(data.qrCode)
+        setHasToken(data.data.hasToken)
+        setMaskedToken(data.data.maskedToken)
       }
     } catch (error) {
-      console.error('Error fetching QR code:', error)
+      console.error('Error loading Whapi token:', error)
     }
   }
 
-  const initializeWhatsApp = async () => {
-    setIsInitializing(true)
-    setWhatsappError(null)
-    try {
-      const response = await fetch('/api/whatsapp/init', { method: 'POST' })
-      if (response.ok) {
-        const data = await response.json()
-        setWhatsappStatus(data.status.status)
-      } else {
-        throw new Error('Failed to initialize WhatsApp')
-      }
-    } catch (error: any) {
-      setWhatsappError(error.message)
-    } finally {
-      setIsInitializing(false)
-    }
-  }
-
-  const disconnectWhatsApp = async () => {
-    setIsDisconnecting(true)
-    try {
-      const response = await fetch('/api/whatsapp/disconnect', { method: 'POST' })
-      if (response.ok) {
-        setWhatsappStatus('disconnected')
-        setWhatsappQR(null)
-        setWhatsappPhone(null)
-        setWhatsappError(null)
-      }
-    } catch (error: any) {
-      setWhatsappError(error.message)
-    } finally {
-      setIsDisconnecting(false)
-    }
-  }
-
-  const clearWhatsAppSession = async () => {
-    if (!confirm('Вы уверены, что хотите полностью очистить сессию WhatsApp? Это удалит все сохраненные данные подключения.')) {
+  const saveWhapiToken = async () => {
+    if (!whapiToken.trim()) {
+      alert('Введите токен Whapi.Cloud')
       return
     }
-    
-    setIsClearingSession(true)
-    setWhatsappError(null)
+
+    setTokenSaving(true)
     try {
-      const response = await fetch('/api/whatsapp/clear-session', { method: 'POST' })
+      const response = await fetch('/api/settings/whapi-token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({ token: whapiToken })
+      })
+
+      const data = await response.json()
+
       if (response.ok) {
-        setWhatsappStatus('disconnected')
-        setWhatsappQR(null)
-        setWhatsappPhone(null)
-        setWhatsappError(null)
-        // Показываем успешное сообщение
-        alert('Сессия WhatsApp полностью очищена. Теперь можно создать новое подключение.')
+        alert('Токен успешно сохранен!')
+        setWhapiToken('')
+        await loadWhapiToken() // Перезагружаем информацию о токене
       } else {
-        const data = await response.json()
-        throw new Error(data.error || 'Failed to clear WhatsApp session')
+        alert(`Ошибка: ${data.error}`)
       }
-    } catch (error: any) {
-      setWhatsappError(error.message)
+    } catch (error) {
+      console.error('Error saving token:', error)
+      alert('Ошибка сохранения токена')
     } finally {
-      setIsClearingSession(false)
+      setTokenSaving(false)
     }
   }
 
-  // Poll WhatsApp status on mount (более частое обновление для QR)
+  const deleteWhapiToken = async () => {
+    if (!confirm('Вы уверены, что хотите удалить токен Whapi.Cloud?')) {
+      return
+    }
+
+    try {
+      const response = await fetch('/api/settings/whapi-token', {
+        method: 'DELETE',
+        credentials: 'include'
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        alert('Токен успешно удален!')
+        await loadWhapiToken()
+      } else {
+        alert(`Ошибка: ${data.error}`)
+      }
+    } catch (error) {
+      console.error('Error deleting token:', error)
+      alert('Ошибка удаления токена')
+    }
+  }
+
+  const sendTestMessage = async () => {
+    if (!testPhone.trim()) {
+      alert('Введите номер телефона')
+      return
+    }
+
+    setTestSending(true)
+    try {
+      const response = await fetch('/api/whatsapp/test-send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({ 
+          phoneNumber: testPhone,
+          message: `🤖 Тестовое сообщение от системы Alex\n\nВремя: ${new Date().toLocaleString('ru-RU')}\n\nЭто автоматическое сообщение для проверки интеграции с Whapi.Cloud. ✅`
+        })
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        alert(`✅ Сообщение успешно отправлено на ${testPhone}!`)
+      } else {
+        if (data.qrCode) {
+          alert(`❌ ${data.error}\n\nВозможно, нужно отсканировать QR код для подключения WhatsApp.`)
+        } else {
+          alert(`❌ Ошибка: ${data.error}`)
+        }
+      }
+    } catch (error) {
+      console.error('Error sending test message:', error)
+      alert('❌ Ошибка при отправке сообщения')
+    } finally {
+      setTestSending(false)
+    }
+  }
+
+  const loadWebhookSettings = async () => {
+    try {
+      const [settingsResponse, recommendedResponse] = await Promise.all([
+        fetch('/api/whatsapp/webhook/setup', { credentials: 'include' }),
+        fetch('/api/whatsapp/webhook/auto-setup', { credentials: 'include' })
+      ])
+      
+      if (settingsResponse.ok) {
+        const data = await settingsResponse.json()
+        setCurrentWebhook(data.data.webhook?.url || null)
+      }
+      
+      if (recommendedResponse.ok) {
+        const recommendedData = await recommendedResponse.json()
+        const recommended = recommendedData.data.recommendedUrl
+        setRecommendedWebhookUrl(recommended)
+        
+        // Если нет текущего webhook, используем рекомендуемый
+        if (!currentWebhook) {
+          setWebhookUrl(recommended)
+        } else {
+          setWebhookUrl(currentWebhook)
+        }
+      }
+    } catch (error) {
+      console.error('Error loading webhook settings:', error)
+    }
+  }
+
+  const setupWebhook = async () => {
+    if (!webhookUrl.trim()) {
+      alert('Введите URL webhook')
+      return
+    }
+
+    setWebhookSetting(true)
+    try {
+      const response = await fetch('/api/whatsapp/webhook/setup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({ webhookUrl })
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        alert('✅ Webhook успешно настроен!')
+        await loadWebhookSettings()
+      } else {
+        alert(`❌ Ошибка: ${data.error}`)
+      }
+    } catch (error) {
+      console.error('Error setting up webhook:', error)
+      alert('❌ Ошибка при настройке webhook')
+    } finally {
+      setWebhookSetting(false)
+    }
+  }
+
+  const autoSetupWebhook = async () => {
+    setWebhookSetting(true)
+    try {
+      const response = await fetch('/api/whatsapp/webhook/auto-setup', {
+        method: 'POST',
+        credentials: 'include'
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        alert(`✅ Webhook автоматически настроен!\n\nURL: ${data.webhookUrl}\nСреда: ${data.environment}`)
+        await loadWebhookSettings()
+      } else {
+        alert(`❌ Ошибка: ${data.error}`)
+      }
+    } catch (error) {
+      console.error('Error auto-setting up webhook:', error)
+      alert('❌ Ошибка при автоматической настройке webhook')
+    } finally {
+      setWebhookSetting(false)
+    }
+  }
+
+  // OpenAI функции
+  const loadOpenaiSettings = async () => {
+    try {
+      const response = await fetch('/api/settings/openai', {
+        credentials: 'include'
+      })
+      
+      const data = await response.json()
+      
+      if (response.ok) {
+        setHasOpenaiSettings(data.data.hasApiKey)
+        setMaskedOpenaiKey(data.data.maskedApiKey)
+        setOpenaiAssistantId(data.data.assistantId || '')
+      } else {
+        console.error('Ошибка загрузки настроек OpenAI:', data.error)
+      }
+    } catch (error) {
+      console.error('Ошибка загрузки настроек OpenAI:', error)
+    }
+  }
+
+  const saveOpenaiSettings = async () => {
+    if (!openaiApiKey.trim() || !openaiAssistantId.trim()) {
+      alert('Заполните все поля')
+      return
+    }
+
+    setOpenaiSaving(true)
+    try {
+      const response = await fetch('/api/settings/openai', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          apiKey: openaiApiKey.trim(),
+          assistantId: openaiAssistantId.trim()
+        })
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        alert('✅ Настройки OpenAI сохранены!')
+        setOpenaiApiKey('')
+        setOpenaiAssistantId('')
+        await loadOpenaiSettings()
+      } else {
+        alert(`❌ ${data.error}`)
+      }
+    } catch (error) {
+      console.error('Ошибка сохранения настроек OpenAI:', error)
+      alert('❌ Ошибка при сохранении настроек OpenAI')
+    } finally {
+      setOpenaiSaving(false)
+    }
+  }
+
+  const deleteOpenaiSettings = async () => {
+    if (!confirm('Вы уверены, что хотите удалить настройки OpenAI?')) {
+      return
+    }
+
+    setOpenaiSaving(true)
+    try {
+      const response = await fetch('/api/settings/openai', {
+        method: 'DELETE',
+        credentials: 'include'
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        alert('✅ Настройки OpenAI удалены!')
+        setHasOpenaiSettings(false)
+        setMaskedOpenaiKey(null)
+        setOpenaiApiKey('')
+        setOpenaiAssistantId('')
+      } else {
+        alert(`❌ ${data.error}`)
+      }
+    } catch (error) {
+      console.error('Ошибка удаления настроек OpenAI:', error)
+      alert('❌ Ошибка при удалении настроек OpenAI')
+    } finally {
+      setOpenaiSaving(false)
+    }
+  }
+
+  // Загрузка пользователей при монтировании
+  useEffect(() => {
+    loadUsers()
+    loadWhapiToken()
+    loadWebhookSettings()
+    loadOpenaiSettings()
+  }, [])
+
+  // Poll WhatsApp status on mount
   useEffect(() => {
     checkWhatsAppStatus()
-    // Используем более частый интервал для QR кода
-    const interval = setInterval(checkWhatsAppStatus, 2000) // каждые 2 секунды
+    const interval = setInterval(checkWhatsAppStatus, 5000) // каждые 5 секунд
     return () => clearInterval(interval)
   }, [])
-  
-  // Дополнительный useEffect для автообновления QR кода и таймера
-  useEffect(() => {
-    if (whatsappStatus === 'qr_ready') {
-      setQrRefreshTimer(60) // Устанавливаем таймер на 60 секунд
-      
-      const qrInterval = setInterval(fetchQRCode, 3000) // обновляем QR каждые 3 секунды
-      const timerInterval = setInterval(() => {
-        setQrRefreshTimer(prev => Math.max(0, prev - 1))
-      }, 1000)
-      
-      return () => {
-        clearInterval(qrInterval)
-        clearInterval(timerInterval)
-      }
-    } else {
-      setQrRefreshTimer(0)
-    }
-  }, [whatsappStatus])
 
   const getWhatsAppStatusBadge = () => {
     switch (whatsappStatus) {
@@ -271,9 +670,9 @@ export default function SettingsPage() {
                   <CardTitle>Управление пользователями</CardTitle>
                   <CardDescription>Добавление, редактирование и управление доступом пользователей</CardDescription>
                 </div>
-                <Dialog>
+                <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
                   <DialogTrigger asChild>
-                    <Button>
+                    <Button onClick={openCreateDialog}>
                       <Plus className="mr-2 h-4 w-4" />
                       Добавить пользователя
                     </Button>
@@ -284,124 +683,249 @@ export default function SettingsPage() {
                       <DialogDescription>Создание нового пользователя в системе</DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4">
+                      {userFormError && (
+                        <Alert variant="destructive">
+                          <AlertDescription>{userFormError}</AlertDescription>
+                        </Alert>
+                      )}
+
+                      <div className="space-y-2">
+                        <Label>Имя пользователя</Label>
+                        <Input 
+                          placeholder="Иван Иванов"
+                          value={userFormData.name}
+                          onChange={(e) => setUserFormData({...userFormData, name: e.target.value})}
+                          disabled={userFormLoading}
+                        />
+                      </div>
+
                       <div className="space-y-2">
                         <Label>Email (логин)</Label>
-                        <Input type="email" placeholder="user@alex.kz" />
+                        <Input 
+                          type="email" 
+                          placeholder="user@alex.kz"
+                          value={userFormData.email}
+                          onChange={(e) => setUserFormData({...userFormData, email: e.target.value})}
+                          disabled={userFormLoading}
+                        />
                       </div>
 
                       <div className="space-y-2">
                         <Label>Пароль</Label>
-                        <Input type="password" placeholder="Временный пароль" />
+                        <Input 
+                          type="password" 
+                          placeholder="Временный пароль"
+                          value={userFormData.password}
+                          onChange={(e) => setUserFormData({...userFormData, password: e.target.value})}
+                          disabled={userFormLoading}
+                        />
                       </div>
 
                       <div className="space-y-2">
                         <Label>Роль</Label>
-                        <Select>
+                        <Select 
+                          value={userFormData.role} 
+                          onValueChange={(value) => setUserFormData({...userFormData, role: value})}
+                          disabled={userFormLoading}
+                        >
                           <SelectTrigger>
                             <SelectValue placeholder="Выберите роль" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="manager">Менеджер</SelectItem>
-                            <SelectItem value="initiator">Инициатор</SelectItem>
-                            <SelectItem value="admin">Администратор</SelectItem>
+                            <SelectItem value="ADMIN">Администратор</SelectItem>
+                            <SelectItem value="PURCHASER">Закупщик</SelectItem>
+                            <SelectItem value="MANAGER">Руководитель</SelectItem>
+                            <SelectItem value="VIEWER">Наблюдатель</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
 
                       <div className="flex items-center space-x-2">
-                        <Switch id="active" defaultChecked />
+                        <Switch 
+                          id="active" 
+                          checked={userFormData.isActive}
+                          onCheckedChange={(checked) => setUserFormData({...userFormData, isActive: checked})}
+                          disabled={userFormLoading}
+                        />
                         <Label htmlFor="active">Активный пользователь</Label>
                       </div>
 
-                      <Button className="w-full">Создать пользователя</Button>
+                      <Button 
+                        className="w-full" 
+                        onClick={createUser}
+                        disabled={userFormLoading}
+                      >
+                        {userFormLoading ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Создание...
+                          </>
+                        ) : (
+                          "Создать пользователя"
+                        )}
+                      </Button>
                     </div>
                   </DialogContent>
                 </Dialog>
               </div>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Логин</TableHead>
-                    <TableHead>Роль</TableHead>
-                    <TableHead>Статус</TableHead>
-                    <TableHead>Последний вход</TableHead>
-                    <TableHead>Действия</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {users.map((user) => (
-                    <TableRow key={user.id}>
-                      <TableCell className="font-medium">{user.login}</TableCell>
-                      <TableCell>{getRoleBadge(user.role)}</TableCell>
-                      <TableCell>{getStatusBadge(user.status)}</TableCell>
-                      <TableCell className="font-mono text-sm">{user.lastLogin}</TableCell>
-                      <TableCell>
-                        <div className="flex space-x-2">
-                          <Dialog>
-                            <DialogTrigger asChild>
-                              <Button variant="outline" size="sm">
-                                <Edit className="mr-2 h-4 w-4" />
-                                Изменить
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                              <DialogHeader>
-                                <DialogTitle>Редактировать пользователя</DialogTitle>
-                                <DialogDescription>Изменение данных пользователя {user.login}</DialogDescription>
-                              </DialogHeader>
-                              <div className="space-y-4">
-                                <div className="space-y-2">
-                                  <Label>Email (логин)</Label>
-                                  <Input defaultValue={user.login} />
-                                </div>
+              {usersError && (
+                <Alert variant="destructive" className="mb-4">
+                  <AlertDescription>{usersError}</AlertDescription>
+                </Alert>
+              )}
 
-                                <div className="space-y-2">
-                                  <Label>Роль</Label>
-                                  <Select defaultValue={user.role.toLowerCase()}>
-                                    <SelectTrigger>
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="manager">Менеджер</SelectItem>
-                                      <SelectItem value="initiator">Инициатор</SelectItem>
-                                      <SelectItem value="admin">Администратор</SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                </div>
+              {usersLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin" />
+                  <span className="ml-2">Загрузка пользователей...</span>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Имя</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Роль</TableHead>
+                      <TableHead>Статус</TableHead>
+                      <TableHead>Последний вход</TableHead>
+                      <TableHead>Действия</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {users.map((user) => (
+                      <TableRow key={user.id}>
+                        <TableCell className="font-medium">{user.name}</TableCell>
+                        <TableCell className="font-mono text-sm">{user.email}</TableCell>
+                        <TableCell>{getRoleBadge(user.role)}</TableCell>
+                        <TableCell>{getStatusBadge(user.isActive ? "Активен" : "Заблокирован")}</TableCell>
+                        <TableCell className="font-mono text-sm">
+                          {user.lastLogin ? new Date(user.lastLogin).toLocaleString('ru-RU') : 'Никогда'}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex space-x-2">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => openEditDialog(user)}
+                            >
+                              <Edit className="mr-2 h-4 w-4" />
+                              Изменить
+                            </Button>
 
-                                <div className="flex items-center space-x-2">
-                                  <Switch id="active-edit" defaultChecked={user.status === "Активен"} />
-                                  <Label htmlFor="active-edit">Активный пользователь</Label>
-                                </div>
-
-                                <div className="space-y-2">
-                                  <Label>Новый пароль (оставьте пустым, если не меняете)</Label>
-                                  <Input type="password" placeholder="Новый пароль" />
-                                </div>
-
-                                <Button className="w-full">Сохранить изменения</Button>
-                              </div>
-                            </DialogContent>
-                          </Dialog>
-
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="text-red-600 hover:text-red-700 bg-transparent"
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Удалить
-                          </Button>
-                        </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-red-600 hover:text-red-700 bg-transparent"
+                              onClick={() => deleteUser(user.id, user.email)}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Удалить
+                            </Button>
+                          </div>
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
+              )}
             </CardContent>
           </Card>
+
+          {/* Диалог редактирования пользователя */}
+          <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Редактировать пользователя</DialogTitle>
+                <DialogDescription>
+                  Изменение данных пользователя {editingUser?.email}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                {userFormError && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{userFormError}</AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="space-y-2">
+                  <Label>Имя пользователя</Label>
+                  <Input 
+                    placeholder="Иван Иванов"
+                    value={userFormData.name}
+                    onChange={(e) => setUserFormData({...userFormData, name: e.target.value})}
+                    disabled={userFormLoading}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Email (логин)</Label>
+                  <Input 
+                    type="email"
+                    value={userFormData.email}
+                    onChange={(e) => setUserFormData({...userFormData, email: e.target.value})}
+                    disabled={userFormLoading}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Роль</Label>
+                  <Select 
+                    value={userFormData.role} 
+                    onValueChange={(value) => setUserFormData({...userFormData, role: value})}
+                    disabled={userFormLoading}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ADMIN">Администратор</SelectItem>
+                      <SelectItem value="PURCHASER">Закупщик</SelectItem>
+                      <SelectItem value="MANAGER">Руководитель</SelectItem>
+                      <SelectItem value="VIEWER">Наблюдатель</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <Switch 
+                    id="active-edit" 
+                    checked={userFormData.isActive}
+                    onCheckedChange={(checked) => setUserFormData({...userFormData, isActive: checked})}
+                    disabled={userFormLoading}
+                  />
+                  <Label htmlFor="active-edit">Активный пользователь</Label>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Новый пароль (оставьте пустым, если не меняете)</Label>
+                  <Input 
+                    type="password" 
+                    placeholder="Новый пароль"
+                    value={userFormData.password}
+                    onChange={(e) => setUserFormData({...userFormData, password: e.target.value})}
+                    disabled={userFormLoading}
+                  />
+                </div>
+
+                <Button 
+                  className="w-full"
+                  onClick={updateUser}
+                  disabled={userFormLoading}
+                >
+                  {userFormLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Сохранение...
+                    </>
+                  ) : (
+                    "Сохранить изменения"
+                  )}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         {/* Шаблоны */}
@@ -517,14 +1041,177 @@ export default function SettingsPage() {
                   <div>
                     <CardTitle className="flex items-center">
                       <MessageSquare className="mr-2 h-5 w-5" />
-                      WhatsApp интеграция
+                      WhatsApp интеграция (Whapi.Cloud)
                     </CardTitle>
-                    <CardDescription>Подключите WhatsApp для автоматической отправки сообщений поставщикам</CardDescription>
+                    <CardDescription>Подключите WhatsApp через Whapi.Cloud API для автоматической отправки сообщений поставщикам</CardDescription>
                   </div>
                   {getWhatsAppStatusBadge()}
                 </div>
               </CardHeader>
               <CardContent className="space-y-6">
+                {/* Настройка токена */}
+                <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
+                  <h3 className="font-semibold text-lg">Настройка API токена</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Получите токен на <a href="https://whapi.cloud" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">whapi.cloud</a> и введите его ниже
+                  </p>
+                  
+                  {/* Текущий токен */}
+                  {hasToken && maskedToken && (
+                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-green-800">Токен настроен</p>
+                          <p className="text-xs text-green-600 font-mono">{maskedToken}</p>
+                        </div>
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={deleteWhapiToken}
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Форма для нового токена */}
+                  <div className="flex space-x-2">
+                    <Input
+                      type="password"
+                      placeholder={hasToken ? "Введите новый токен для замены" : "Введите ваш Whapi.Cloud токен"}
+                      value={whapiToken}
+                      onChange={(e) => setWhapiToken(e.target.value)}
+                      disabled={tokenSaving}
+                    />
+                    <Button 
+                      onClick={saveWhapiToken}
+                      disabled={tokenSaving || !whapiToken.trim()}
+                    >
+                      {tokenSaving ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Сохранение...
+                        </>
+                      ) : (
+                        hasToken ? 'Заменить' : 'Сохранить'
+                      )}
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Тестирование отправки сообщений */}
+                {hasToken && (
+                  <div className="space-y-4 p-4 border rounded-lg bg-blue-50 border-blue-200">
+                    <h3 className="font-semibold text-lg text-blue-900">Тестирование отправки</h3>
+                    <p className="text-sm text-blue-700">
+                      Отправьте тестовое сообщение для проверки работы Whapi.Cloud
+                    </p>
+                    <div className="flex space-x-2">
+                      <Input
+                        type="tel"
+                        placeholder="Номер телефона (+77075112805)"
+                        value={testPhone}
+                        onChange={(e) => setTestPhone(e.target.value)}
+                        disabled={testSending}
+                        className="flex-1"
+                      />
+                      <Button 
+                        onClick={sendTestMessage}
+                        disabled={testSending || !testPhone.trim()}
+                        className="bg-blue-600 hover:bg-blue-700"
+                      >
+                        {testSending ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Отправка...
+                          </>
+                        ) : (
+                          <>
+                            <MessageSquare className="mr-2 h-4 w-4" />
+                            Отправить тест
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Настройка Webhook для входящих сообщений */}
+                {hasToken && (
+                  <div className="space-y-4 p-4 border rounded-lg bg-purple-50 border-purple-200">
+                    <h3 className="font-semibold text-lg text-purple-900">Настройка Webhook</h3>
+                    <p className="text-sm text-purple-700">
+                      Настройте webhook для получения входящих сообщений в реальном времени
+                    </p>
+                    
+                    {/* Текущий webhook */}
+                    {currentWebhook && (
+                      <div className="p-3 bg-purple-100 border border-purple-300 rounded-lg">
+                        <p className="text-sm font-medium text-purple-800">Текущий webhook:</p>
+                        <p className="text-xs text-purple-600 font-mono break-all">{currentWebhook}</p>
+                      </div>
+                    )}
+                    
+                    {/* Рекомендуемый webhook */}
+                    {recommendedWebhookUrl && recommendedWebhookUrl !== currentWebhook && (
+                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-blue-800">Рекомендуемый URL для продакшена:</p>
+                            <p className="text-xs text-blue-600 font-mono break-all">{recommendedWebhookUrl}</p>
+                          </div>
+                          <Button 
+                            size="sm"
+                            onClick={autoSetupWebhook}
+                            disabled={webhookSetting}
+                            className="ml-2 bg-blue-600 hover:bg-blue-700"
+                          >
+                            {webhookSetting ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              'Применить'
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                    
+                    <div className="flex space-x-2">
+                      <Input
+                        type="url"
+                        placeholder="https://yourdomain.com/api/whatsapp/webhook"
+                        value={webhookUrl}
+                        onChange={(e) => setWebhookUrl(e.target.value)}
+                        disabled={webhookSetting}
+                        className="flex-1"
+                      />
+                      <Button 
+                        onClick={setupWebhook}
+                        disabled={webhookSetting || !webhookUrl.trim()}
+                        className="bg-purple-600 hover:bg-purple-700"
+                      >
+                        {webhookSetting ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Настройка...
+                          </>
+                        ) : (
+                          <>
+                            <Settings className="mr-2 h-4 w-4" />
+                            Настроить
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                    
+                    <div className="text-xs text-purple-600">
+                      💡 Для локального тестирования используйте ngrok или аналогичный сервис для создания публичного URL
+                    </div>
+                  </div>
+                )}
+
                 {/* Информация о подключении */}
                 {whatsappPhone && (
                   <Alert className="bg-green-50 border-green-200">
@@ -542,7 +1229,7 @@ export default function SettingsPage() {
                   </Alert>
                 )}
 
-                {/* QR Code */}
+                {/* QR Code для Whapi.Cloud */}
                 {whatsappStatus === 'qr_ready' && whatsappQR && (
                   <div className="flex flex-col items-center space-y-4 p-6 border rounded-lg bg-muted/30">
                     <div className="text-center space-y-2">
@@ -550,22 +1237,16 @@ export default function SettingsPage() {
                       <p className="text-sm text-muted-foreground">
                         Откройте WhatsApp на телефоне → Настройки → Связанные устройства → Связать устройство
                       </p>
-                      {qrRefreshTimer > 0 && (
-                        <Badge variant="outline" className="mt-2">
-                          <Clock className="h-3 w-3 mr-1" />
-                          QR активен: {qrRefreshTimer}с
-                        </Badge>
-                      )}
                     </div>
                     <div className="bg-white p-4 rounded-lg shadow-sm">
                       <img 
                         src={whatsappQR} 
                         alt="WhatsApp QR Code" 
                         className="w-64 h-64"
-                        key={whatsappQR} // Force re-render on QR change
+                        key={whatsappQR}
                       />
                     </div>
-                    <p className="text-xs text-muted-foreground">QR код автоматически обновляется каждые 3 секунды</p>
+                    <p className="text-xs text-muted-foreground">QR код от Whapi.Cloud</p>
                   </div>
                 )}
 
@@ -594,119 +1275,23 @@ export default function SettingsPage() {
                   </Alert>
                 )}
 
-                {/* Кнопки управления */}
-                <div className="flex gap-3">
-                  {whatsappStatus === 'disconnected' && (
-                    <Button 
-                      onClick={initializeWhatsApp}
-                      disabled={isInitializing}
-                      className="flex-1"
-                    >
-                      {isInitializing ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Инициализация...
-                        </>
-                      ) : (
-                        <>
-                          <MessageSquare className="mr-2 h-4 w-4" />
-                          Подключить WhatsApp
-                        </>
-                      )}
-                    </Button>
-                  )}
 
-                  {whatsappStatus === 'ready' && (
-                    <>
-                      <Button 
-                        onClick={disconnectWhatsApp}
-                        disabled={isDisconnecting || isClearingSession}
-                        variant="destructive"
-                        className="flex-1"
-                      >
-                        {isDisconnecting ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Отключение...
-                          </>
-                        ) : (
-                          <>
-                            <XCircle className="mr-2 h-4 w-4" />
-                            Отключить WhatsApp
-                          </>
-                        )}
-                      </Button>
-                      <Button 
-                        onClick={clearWhatsAppSession}
-                        disabled={isClearingSession || isDisconnecting}
-                        variant="outline"
-                        size="sm"
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                      >
-                        {isClearingSession ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Очистка...
-                          </>
-                        ) : (
-                          <>
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Сменить аккаунт
-                          </>
-                        )}
-                      </Button>
-                    </>
-                  )}
-
-                  {(whatsappStatus === 'qr_ready' || whatsappStatus === 'connecting') && (
-                    <Button 
-                      onClick={disconnectWhatsApp}
-                      disabled={isDisconnecting}
-                      variant="outline"
-                      className="flex-1"
-                    >
-                      Отменить
-                    </Button>
-                  )}
-                </div>
-
-                {/* Дополнительные действия */}
-                {(whatsappStatus === 'disconnected' || whatsappStatus === 'error') && (
-                  <div className="pt-4 border-t">
-                    <Button 
-                      onClick={clearWhatsAppSession}
-                      disabled={isClearingSession}
-                      variant="outline"
-                      size="sm"
-                      className="w-full text-red-600 hover:text-red-700 hover:bg-red-50"
-                    >
-                      {isClearingSession ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Очистка сессии...
-                        </>
-                      ) : (
-                        <>
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Очистить сессию полностью
-                        </>
-                      )}
-                    </Button>
-                    <p className="text-xs text-muted-foreground mt-2 text-center">
-                      Удаляет все сохраненные данные подключения WhatsApp
-                    </p>
-                  </div>
-                )}
 
                 {/* Информация */}
                 <div className="text-sm text-muted-foreground space-y-2 pt-4 border-t">
-                  <p><strong>Как это работает:</strong></p>
+                  <p><strong>Как это работает (Whapi.Cloud):</strong></p>
                   <ul className="list-disc list-inside space-y-1 ml-2">
-                    <li>Нажмите "Подключить WhatsApp"</li>
-                    <li>Отсканируйте QR код через мобильное приложение WhatsApp</li>
-                    <li>После подключения сессия сохраняется автоматически</li>
-                    <li>При следующем запуске переподключение не потребуется</li>
+                    <li>Зарегистрируйтесь на <a href="https://whapi.cloud" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">whapi.cloud</a></li>
+                    <li>Получите API токен в личном кабинете</li>
+                    <li>Введите токен в поле выше и сохраните</li>
+                    <li>Настройте webhook для получения входящих сообщений</li>
+                    <li>Подключите WhatsApp через панель управления Whapi.Cloud</li>
+                    <li>Начните отправлять и получать сообщения!</li>
                   </ul>
+                  <p className="text-xs mt-2">
+                    <strong>Преимущества Whapi.Cloud:</strong> Стабильное подключение, облачная инфраструктура, 
+                    отсутствие проблем с браузером и Puppeteer.
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -754,6 +1339,122 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
           </div>
+
+          {/* OpenAI настройки */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center space-x-2">
+                    <Brain className="h-5 w-5" />
+                    <span>OpenAI ИИ Ассистент</span>
+                  </CardTitle>
+                  <CardDescription>
+                    Настройте OpenAI API для генерации персонализированных сообщений поставщикам
+                  </CardDescription>
+                </div>
+                <Badge variant={hasOpenaiSettings ? "default" : "secondary"}>
+                  {hasOpenaiSettings ? "Настроен" : "Не настроен"}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* API Key настройка */}
+              <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
+                <h3 className="font-semibold text-lg">API Ключ OpenAI</h3>
+                <p className="text-sm text-muted-foreground">
+                  Получите API ключ на <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">platform.openai.com</a>
+                </p>
+                
+                {hasOpenaiSettings && maskedOpenaiKey ? (
+                  <div className="space-y-2">
+                    <Label>Текущий API ключ</Label>
+                    <div className="flex items-center space-x-2">
+                      <Input 
+                        value={maskedOpenaiKey} 
+                        disabled 
+                        className="font-mono text-sm"
+                      />
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={loadOpenaiSettings}
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="space-y-2">
+                  <Label htmlFor="openai-api-key">
+                    {hasOpenaiSettings ? 'Новый API ключ' : 'API ключ OpenAI'}
+                  </Label>
+                  <Input
+                    id="openai-api-key"
+                    type="password"
+                    placeholder="sk-..."
+                    value={openaiApiKey}
+                    onChange={(e) => setOpenaiApiKey(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="assistant-id">ID Ассистента</Label>
+                  <Input
+                    id="assistant-id"
+                    placeholder="asst_..."
+                    value={openaiAssistantId}
+                    onChange={(e) => setOpenaiAssistantId(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Создайте ассистента в <a href="https://platform.openai.com/assistants" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">OpenAI Playground</a>
+                  </p>
+                </div>
+
+                <div className="flex space-x-2">
+                  <Button 
+                    onClick={saveOpenaiSettings}
+                    disabled={openaiSaving || !openaiApiKey.trim() || !openaiAssistantId.trim()}
+                  >
+                    {openaiSaving ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Сохранение...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="mr-2 h-4 w-4" />
+                        Сохранить настройки
+                      </>
+                    )}
+                  </Button>
+                  
+                  {hasOpenaiSettings && (
+                    <Button 
+                      variant="outline"
+                      onClick={deleteOpenaiSettings}
+                      disabled={openaiSaving}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Удалить
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* Инструкции */}
+              <div className="p-4 bg-blue-50 rounded-lg">
+                <h4 className="font-medium text-blue-900 mb-2">Как настроить:</h4>
+                <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
+                  <li>Зарегистрируйтесь на <a href="https://platform.openai.com" target="_blank" rel="noopener noreferrer" className="underline">OpenAI Platform</a></li>
+                  <li>Создайте API ключ в разделе "API Keys"</li>
+                  <li>Создайте ассистента в "Assistants" с инструкциями для генерации сообщений</li>
+                  <li>Скопируйте ID ассистента и вставьте выше</li>
+                </ol>
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Общие настройки системы */}
           <Card>

@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const config = {
+  output: 'standalone', // Для Docker оптимизации
   typescript: {
     // !! WARN !!
     // Dangerously allow production builds to successfully complete even if

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { SearchResult, SearchResponse } from '@/types/search';
 import puppeteer from 'puppeteer';
 
-const SEARCH_ENGINE_ID = 'd7065ea5c59764932';
+const SEARCH_ENGINE_ID = process.env.GOOGLE_SEARCH_ENGINE_ID || 'd7065ea5c59764932';
 
 // ============================================
 // МИНИМАЛЬНАЯ ФИЛЬТРАЦИЯ - только явный мусор
@@ -68,11 +68,12 @@ function buildSearchQuery(originalQuery: string): string[] {
  */
 async function parseContacts(url: string): Promise<any> {
   try {
-    const response = await fetch('http://localhost:3000/api/parse-contacts', {
+    const baseUrl = 'http://127.0.0.1:3000' // Принудительно IPv4 для внутренних API вызовов
+    const response = await fetch(`${baseUrl}/api/parse-contacts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url }),
-      signal: AbortSignal.timeout(10000), // 10 сек timeout
+      signal: AbortSignal.timeout(30000), // 5 сек timeout
     });
     
     if (!response.ok) throw new Error('Parse failed');
@@ -123,7 +124,18 @@ export async function POST(request: Request) {
         
         const browser = await puppeteer.launch({
           headless: true,
-          args: ['--no-sandbox', '--disable-setuid-sandbox']
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu',
+            '--disable-web-security',
+            '--disable-features=VizDisplayCompositor'
+          ],
+          timeout: 60000
         });
         
         const page = await browser.newPage();

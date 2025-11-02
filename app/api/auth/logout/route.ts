@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     // Логирование выхода
     if (user) {
       const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip')
-      await logAction(user.id, 'logout', 'user', user.id, null, ipAddress || undefined)
+      await logAction(user.id, 'LOGOUT', 'User', user.id, { email: user.email }, ipAddress || undefined)
     }
 
     // Создаем response и удаляем cookie

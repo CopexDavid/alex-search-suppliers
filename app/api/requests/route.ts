@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     
     // Фильтры
-    const status = searchParams.get('status') as RequestStatus | null
+    const statusParam = searchParams.get('status')
     const search = searchParams.get('search')
     const limit = parseInt(searchParams.get('limit') || '50')
     const offset = parseInt(searchParams.get('offset') || '0')
@@ -19,8 +19,14 @@ export async function GET(request: NextRequest) {
     // Строим запрос с фильтрами
     const where: any = {}
     
-    if (status && status !== 'ALL') {
-      where.status = status
+    if (statusParam && statusParam !== 'ALL') {
+      // Поддержка множественных статусов через запятую
+      const statuses = statusParam.split(',').map(s => s.trim())
+      if (statuses.length === 1) {
+        where.status = statuses[0] as RequestStatus
+      } else {
+        where.status = { in: statuses as RequestStatus[] }
+      }
     }
     
     if (search) {
@@ -42,7 +48,22 @@ export async function GET(request: NextRequest) {
               email: true,
             },
           },
-          positions: true,
+          positions: {
+            include: {
+              positionChats: {
+                include: {
+                  chat: {
+                    include: {
+                      messages: {
+                        orderBy: { timestamp: 'desc' },
+                        take: 10 // Последние 10 сообщений для анализа
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
           _count: {
             select: {
               quotes: true,

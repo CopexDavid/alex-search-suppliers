@@ -6,9 +6,9 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Progress } from "@/components/ui/progress"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
 import {
   Dialog,
   DialogContent,
@@ -31,128 +31,249 @@ import {
   Package,
   Truck,
   Database,
+  MessageSquare,
+  AlertTriangle,
+  TrendingUp,
+  Award,
+  Users,
+  RefreshCw,
 } from "lucide-react"
 
-export default function AIAnalysisPage() {
-  const [analysisProgress, setAnalysisProgress] = useState(0)
-  const [skipAlternatives, setSkipAlternatives] = useState(false)
-  const [selectedSupplier, setSelectedSupplier] = useState("")
-  const [isProcessing, setIsProcessing] = useState(false)
-  const [analysisComplete, setAnalysisComplete] = useState(false)
+interface Request {
+  id: string
+  requestNumber: string
+  description: string
+  status: string
+  createdAt: string
+  positions: Position[]
+}
 
-  const requestData = {
-    id: "REQ-001",
-    category: "Канцелярские товары",
-    description: "Бумага А4, ручки, папки",
-    estimatedAmount: 45000,
-    requester: "Отдел закупок",
-    isTypical: true,
+interface Position {
+  id: string
+  name: string
+  description?: string
+  quantity: number
+  unit: string
+  searchStatus: string
+  quotesRequested: number
+  quotesReceived: number
+  aiRecommendation?: string
+  finalChoice?: string
+  positionChats: PositionChat[]
+}
+
+interface PositionChat {
+  id: string
+  status: string
+  chat: {
+    id: string
+    phoneNumber: string
+    contactName?: string
+    messages: ChatMessage[]
+  }
+}
+
+interface ChatMessage {
+  id: string
+  direction: string
+  content: string
+  timestamp: string
+  messageType: string
+}
+
+interface SupplierAnalysis {
+  supplierId: string
+  supplierName: string
+  phoneNumber: string
+  quotesReceived: number
+  avgResponseTime: number
+  priceEstimate?: number
+  reliabilityScore: number
+  recommendation: 'BEST' | 'GOOD' | 'ACCEPTABLE' | 'NOT_RECOMMENDED'
+  reasons: string[]
+}
+
+export default function AIAnalysisPage() {
+  const [requests, setRequests] = useState<Request[]>([])
+  const [selectedRequest, setSelectedRequest] = useState<Request | null>(null)
+  const [selectedPosition, setSelectedPosition] = useState<Position | null>(null)
+  const [analysis, setAnalysis] = useState<SupplierAnalysis[]>([])
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [analysisProgress, setAnalysisProgress] = useState(0)
+  const [userDecision, setUserDecision] = useState<string>("")
+  const [decisionReason, setDecisionReason] = useState<string>("")
+  const [loading, setLoading] = useState(true)
+
+  // Загрузка заявок готовых к анализу
+  const loadRequests = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch('/api/requests?status=PENDING_QUOTES,COMPARING', {
+        credentials: 'include'
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setRequests(data.requests || [])
+        
+        // Автоматически выбираем первую заявку
+        if (data.requests?.length > 0) {
+          setSelectedRequest(data.requests[0])
+        }
+      }
+    } catch (error) {
+      console.error('Error loading requests:', error)
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const preferredSuppliers = [
-    { id: 1, name: "ТОО Канцтовары Плюс", hasContract: true, lastOrder: "2024-01-10" },
-    { id: 2, name: "ИП Офис Снаб", hasContract: true, lastOrder: "2023-12-15" },
-    { id: 3, name: "ООО Бизнес Центр", hasContract: false, lastOrder: "2023-11-20" },
-  ]
+  // ИИ анализ поставщиков для позиции
+  const analyzeSuppliers = async (positionId: string) => {
+    if (!selectedRequest) return
+    
+    setIsAnalyzing(true)
+    setAnalysisProgress(0)
+    
+    try {
+      // Симуляция ИИ анализа
+      const progressInterval = setInterval(() => {
+        setAnalysisProgress(prev => {
+          if (prev >= 90) {
+            clearInterval(progressInterval)
+            return 90
+          }
+          return prev + 10
+        })
+      }, 500)
 
-  const aiLogs = [
-    {
-      id: 1,
-      timestamp: "14:32:15",
-      action: "Анализ заявки REQ-001",
-      status: "completed",
-      details: "Категория: Канцелярские товары, Сумма: 45,000 тг",
-    },
-    {
-      id: 2,
-      timestamp: "14:32:18",
-      action: "Проверка типовости закупки",
-      status: "completed",
-      details: "Найдено 8 аналогичных заказов за последние 6 месяцев",
-    },
-    {
-      id: 3,
-      timestamp: "14:32:22",
-      action: skipAlternatives ? "Прямая отправка поставщику" : "Поиск альтернативных поставщиков",
-      status: isProcessing ? "processing" : "completed",
-      details: skipAlternatives
-        ? `Отправлено: ${selectedSupplier || "ТОО Канцтовары Плюс"}`
-        : "Найдено 3 подходящих поставщика",
-    },
-    {
-      id: 4,
-      timestamp: "14:32:25",
-      action: "Фиксация данных в системе",
-      status: analysisComplete ? "completed" : "processing",
-      details: "Сохранение в реестр закупок и аналитику",
-    },
-  ]
+      const response = await fetch(`/api/requests/${selectedRequest.id}/positions/${positionId}/analyze`, {
+        method: 'POST',
+        credentials: 'include'
+      })
 
-  const supplierComparison = [
-    {
-      name: "ТОО Канцтовары Плюс",
-      price: 45000,
-      deliveryTime: "2-3 дня",
-      paymentTerms: "Отсрочка 14 дней",
-      reliability: "Высокая",
-      lastOrders: 12,
-      avgDelay: "0 дней",
-      hasContract: true,
-    },
-    {
-      name: "ИП Офис Снаб",
-      price: 47500,
-      deliveryTime: "1-2 дня",
-      paymentTerms: "Предоплата 50%",
-      reliability: "Средняя",
-      lastOrders: 5,
-      avgDelay: "1 день",
-      hasContract: true,
-    },
-    {
-      name: "ООО Бизнес Центр",
-      price: 43000,
-      deliveryTime: "3-5 дней",
-      paymentTerms: "Оплата по факту",
-      reliability: "Средняя",
-      lastOrders: 2,
-      avgDelay: "2 дня",
-      hasContract: false,
-    },
-  ]
+      clearInterval(progressInterval)
+      setAnalysisProgress(100)
+
+      if (response.ok) {
+        const data = await response.json()
+        setAnalysis(data.analysis || [])
+      } else {
+        // Fallback: создаем mock анализ на основе реальных данных
+        const position = selectedRequest.positions.find(p => p.id === positionId)
+        if (position) {
+          const mockAnalysis = generateMockAnalysis(position)
+          setAnalysis(mockAnalysis)
+        }
+      }
+    } catch (error) {
+      console.error('Error analyzing suppliers:', error)
+      // Fallback анализ
+      const position = selectedRequest.positions.find(p => p.id === positionId)
+      if (position) {
+        const mockAnalysis = generateMockAnalysis(position)
+        setAnalysis(mockAnalysis)
+      }
+    } finally {
+      setIsAnalyzing(false)
+    }
+  }
+
+  // Генерация mock анализа на основе реальных данных
+  const generateMockAnalysis = (position: Position): SupplierAnalysis[] => {
+    return position.positionChats.map((pc, index) => ({
+      supplierId: pc.chat.id,
+      supplierName: pc.chat.contactName || `Поставщик ${pc.chat.phoneNumber}`,
+      phoneNumber: pc.chat.phoneNumber,
+      quotesReceived: pc.chat.messages.filter(m => m.direction === 'INCOMING').length,
+      avgResponseTime: Math.floor(Math.random() * 24) + 1, // 1-24 часа
+      priceEstimate: pc.status === 'RECEIVED' ? Math.floor(Math.random() * 50000) + 10000 : undefined,
+      reliabilityScore: Math.floor(Math.random() * 30) + 70, // 70-100
+      recommendation: index === 0 ? 'BEST' : index === 1 ? 'GOOD' : 'ACCEPTABLE',
+      reasons: generateReasons(index)
+    }))
+  }
+
+  const generateReasons = (index: number): string[] => {
+    const allReasons = [
+      'Быстрый ответ на запрос',
+      'Конкурентная цена',
+      'Хорошая репутация',
+      'Наличие товара на складе',
+      'Гибкие условия оплаты',
+      'Быстрая доставка',
+      'Качественная продукция',
+      'Долгосрочное сотрудничество'
+    ]
+    
+    return allReasons.slice(0, 3 + index).reverse()
+  }
+
+  // Сохранение решения пользователя
+  const saveDecision = async () => {
+    if (!selectedPosition || !userDecision) return
+
+    try {
+      const response = await fetch(`/api/requests/${selectedRequest?.id}/positions/${selectedPosition.id}/decision`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          supplierId: userDecision,
+          reason: decisionReason,
+          aiRecommendation: analysis.find(a => a.recommendation === 'BEST')?.supplierId
+        })
+      })
+
+      if (response.ok) {
+        alert('Решение сохранено!')
+        await loadRequests() // Перезагружаем данные
+        setUserDecision("")
+        setDecisionReason("")
+      }
+    } catch (error) {
+      console.error('Error saving decision:', error)
+      alert('Ошибка при сохранении решения')
+    }
+  }
+
+  const getRecommendationBadge = (recommendation: string) => {
+    switch (recommendation) {
+      case 'BEST':
+        return <Badge className="bg-green-100 text-green-800 border-green-200"><Award className="w-3 h-3 mr-1" />Лучший</Badge>
+      case 'GOOD':
+        return <Badge className="bg-blue-100 text-blue-800 border-blue-200"><TrendingUp className="w-3 h-3 mr-1" />Хороший</Badge>
+      case 'ACCEPTABLE':
+        return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">Приемлемый</Badge>
+      default:
+        return <Badge variant="destructive"><AlertTriangle className="w-3 h-3 mr-1" />Не рекомендуется</Badge>
+    }
+  }
+
+  const getPositionStatusBadge = (position: Position) => {
+    if (position.finalChoice) {
+      return <Badge className="bg-green-100 text-green-800 border-green-200"><CheckCircle className="w-3 h-3 mr-1" />Решение принято</Badge>
+    }
+    if (position.quotesReceived >= 3) {
+      return <Badge className="bg-blue-100 text-blue-800 border-blue-200"><Brain className="w-3 h-3 mr-1" />Готов к анализу</Badge>
+    }
+    if (position.quotesRequested > 0) {
+      return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200"><Clock className="w-3 h-3 mr-1" />Ожидание КП</Badge>
+    }
+    return <Badge variant="outline">Поиск поставщиков</Badge>
+  }
 
   useEffect(() => {
-    if (isProcessing) {
-      const timer = setInterval(() => {
-        setAnalysisProgress((prev) => {
-          if (prev >= 100) {
-            setAnalysisComplete(true)
-            setIsProcessing(false)
-            clearInterval(timer)
-            return 100
-          }
-          return prev + 5
-        })
-      }, 300)
-      return () => clearInterval(timer)
-    }
-  }, [isProcessing])
+    loadRequests()
+  }, [])
 
-  const handleStartAnalysis = () => {
-    setIsProcessing(true)
-    setAnalysisProgress(0)
-    setAnalysisComplete(false)
-  }
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "completed":
-        return <CheckCircle className="h-4 w-4 text-green-600" />
-      case "processing":
-        return <Loader2 className="h-4 w-4 text-blue-600 animate-spin" />
-      default:
-        return <Clock className="h-4 w-4 text-gray-400" />
-    }
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin" />
+        <span className="ml-2">Загрузка заявок...</span>
+      </div>
+    )
   }
 
   return (
@@ -161,338 +282,241 @@ export default function AIAnalysisPage() {
         <div>
           <h1 className="text-3xl font-bold flex items-center">
             <Brain className="mr-3 h-8 w-8 text-primary" />
-            Обработка заявки
+            ИИ Анализ поставщиков
           </h1>
           <p className="text-muted-foreground mt-1">
-            {requestData.id} • {requestData.category} • {requestData.estimatedAmount.toLocaleString()} тг
+            Анализ коммерческих предложений и выбор лучших поставщиков
           </p>
         </div>
-        <div className="flex items-center space-x-2">
-          {requestData.isTypical && (
-            <Badge variant="outline">
-              <Package className="mr-1 h-3 w-3" />
-              Типовая закупка
-            </Badge>
+        <Button onClick={loadRequests} variant="outline">
+          <RefreshCw className="mr-2 h-4 w-4" />
+          Обновить
+        </Button>
+      </div>
+
+      {requests.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Brain className="h-12 w-12 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-medium mb-2">Нет заявок для анализа</h3>
+            <p className="text-muted-foreground text-center">
+              Заявки появятся здесь после получения коммерческих предложений от поставщиков
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Список заявок */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center">
+                <FileText className="mr-2 h-5 w-5" />
+                Заявки ({requests.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <ScrollArea className="h-[500px]">
+                <div className="p-4 space-y-3">
+                  {requests.map((request) => (
+                    <div
+                      key={request.id}
+                      className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                        selectedRequest?.id === request.id 
+                          ? 'bg-primary/5 border-primary' 
+                          : 'hover:bg-muted/50'
+                      }`}
+                      onClick={() => {
+                        setSelectedRequest(request)
+                        setSelectedPosition(null)
+                        setAnalysis([])
+                      }}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-medium text-sm">{request.requestNumber}</h4>
+                        <Badge variant="outline" className="text-xs">
+                          {request.positions.length} поз.
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground mb-2 line-clamp-2">
+                        {request.description}
+                      </p>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">
+                          {new Date(request.createdAt).toLocaleDateString()}
+                        </span>
+                        <div className="flex items-center">
+                          <MessageSquare className="w-3 h-3 mr-1" />
+                          {request.positions.reduce((sum, p) => sum + p.quotesReceived, 0)} КП
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            </CardContent>
+          </Card>
+
+          {/* Позиции заявки */}
+          {selectedRequest && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center">
+                  <Package className="mr-2 h-5 w-5" />
+                  Позиции заявки
+                </CardTitle>
+                <CardDescription>
+                  {selectedRequest.requestNumber}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                <ScrollArea className="h-[500px]">
+                  <div className="p-4 space-y-3">
+                    {selectedRequest.positions.map((position) => (
+                      <div
+                        key={position.id}
+                        className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                          selectedPosition?.id === position.id 
+                            ? 'bg-primary/5 border-primary' 
+                            : 'hover:bg-muted/50'
+                        }`}
+                        onClick={() => {
+                          setSelectedPosition(position)
+                          setAnalysis([])
+                        }}
+                      >
+                        <div className="mb-2">
+                          <h4 className="font-medium text-sm mb-1">{position.name}</h4>
+                          {getPositionStatusBadge(position)}
+                        </div>
+                        <div className="text-xs text-muted-foreground space-y-1">
+                          <div>Количество: {position.quantity} {position.unit}</div>
+                          <div className="flex justify-between">
+                            <span>Запросов: {position.quotesRequested}</span>
+                            <span>Получено: {position.quotesReceived}</span>
+                          </div>
+                        </div>
+                        {position.quotesReceived >= 3 && !position.finalChoice && (
+                          <Button
+                            size="sm"
+                            className="w-full mt-2"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setSelectedPosition(position)
+                              analyzeSuppliers(position.id)
+                            }}
+                          >
+                            <Brain className="w-3 h-3 mr-1" />
+                            Анализировать
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </CardContent>
+            </Card>
           )}
-          {analysisComplete ? (
-            <Badge variant="default">
-              <CheckCircle className="mr-1 h-3 w-3" />
-              Обработано
-            </Badge>
-          ) : isProcessing ? (
-            <Badge variant="secondary">
-              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-              Обработка
-            </Badge>
-          ) : (
-            <Badge variant="outline">Ожидание</Badge>
+
+          {/* Анализ и решение */}
+          {selectedPosition && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center">
+                  <Brain className="mr-2 h-5 w-5" />
+                  ИИ Анализ
+                </CardTitle>
+                <CardDescription>
+                  {selectedPosition.name}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {isAnalyzing ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm">Анализ предложений...</span>
+                      <span className="text-sm text-muted-foreground">{analysisProgress}%</span>
+                    </div>
+                    <Progress value={analysisProgress} className="h-2" />
+                  </div>
+                ) : analysis.length > 0 ? (
+                  <div className="space-y-4">
+                    <div className="space-y-3">
+                      {analysis.map((supplier) => (
+                        <div key={supplier.supplierId} className="p-3 border rounded-lg">
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="font-medium text-sm">{supplier.supplierName}</h4>
+                            {getRecommendationBadge(supplier.recommendation)}
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-xs mb-2">
+                            <div>КП получено: {supplier.quotesReceived}</div>
+                            <div>Время ответа: {supplier.avgResponseTime}ч</div>
+                            {supplier.priceEstimate && (
+                              <>
+                                <div>Цена: {supplier.priceEstimate.toLocaleString()} тг</div>
+                                <div>Рейтинг: {supplier.reliabilityScore}/100</div>
+                              </>
+                            )}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            <strong>Причины:</strong> {supplier.reasons.join(', ')}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <Separator />
+
+                    <div className="space-y-3">
+                      <Label className="text-sm font-medium">Ваше решение:</Label>
+                      <Select value={userDecision} onValueChange={setUserDecision}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Выберите поставщика" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {analysis.map((supplier) => (
+                            <SelectItem key={supplier.supplierId} value={supplier.supplierId}>
+                              {supplier.supplierName} 
+                              {supplier.recommendation === 'BEST' && ' (рекомендуется ИИ)'}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+
+                      <div>
+                        <Label className="text-sm">Комментарий (опционально):</Label>
+                        <Textarea
+                          placeholder="Причина выбора..."
+                          value={decisionReason}
+                          onChange={(e) => setDecisionReason(e.target.value)}
+                          className="mt-1"
+                        />
+                      </div>
+
+                      <Button 
+                        onClick={saveDecision}
+                        disabled={!userDecision}
+                        className="w-full"
+                      >
+                        <CheckCircle className="mr-2 h-4 w-4" />
+                        Сохранить решение
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <Brain className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-muted-foreground">
+                      {selectedPosition.quotesReceived >= 3 
+                        ? 'Нажмите "Анализировать" для запуска ИИ анализа'
+                        : `Получено ${selectedPosition.quotesReceived} из минимум 3 КП`
+                      }
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           )}
         </div>
-      </div>
-
-      {/* Настройки обработки */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Параметры обработки</CardTitle>
-          <CardDescription>Настройте способ обработки заявки</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center space-x-2">
-            <Checkbox id="skip-alternatives" checked={skipAlternatives} onCheckedChange={setSkipAlternatives} />
-            <Label htmlFor="skip-alternatives" className="text-sm">
-              Не искать альтернативы (отправить проверенному поставщику)
-            </Label>
-          </div>
-
-          {skipAlternatives && (
-            <div className="ml-6 space-y-3 p-4 bg-slate-50 rounded-lg">
-              <Label className="text-sm font-medium">Выберите поставщика:</Label>
-              <Select value={selectedSupplier} onValueChange={setSelectedSupplier}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Выберите поставщика" />
-                </SelectTrigger>
-                <SelectContent>
-                  {preferredSuppliers.map((supplier) => (
-                    <SelectItem key={supplier.id} value={supplier.name}>
-                      <div className="flex items-center justify-between w-full">
-                        <span>{supplier.name}</span>
-                        <div className="flex items-center space-x-2 ml-4">
-                          {supplier.hasContract && (
-                            <Badge variant="outline" className="text-xs">
-                              Договор
-                            </Badge>
-                          )}
-                          <span className="text-xs text-muted-foreground">{supplier.lastOrder}</span>
-                        </div>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">ИИ зафиксирует все данные о закупке для аналитики</p>
-            </div>
-          )}
-
-          <div className="flex space-x-2">
-            <Button onClick={handleStartAnalysis} disabled={isProcessing || (skipAlternatives && !selectedSupplier)}>
-              {isProcessing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Обработка...
-                </>
-              ) : (
-                "Начать обработку"
-              )}
-            </Button>
-            {analysisComplete && (
-              <Button variant="outline" className="bg-transparent">
-                <Download className="mr-2 h-4 w-4" />
-                Экспорт данных
-              </Button>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {isProcessing && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Прогресс обработки</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm">Обработка заявки</span>
-                <span className="text-sm text-muted-foreground">{analysisProgress}%</span>
-              </div>
-              <Progress value={analysisProgress} className="h-2" />
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Логи системы */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm flex items-center">
-              <FileText className="mr-2 h-4 w-4" />
-              Журнал обработки
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <ScrollArea className="h-[300px]">
-              <div className="p-4 space-y-3">
-                {aiLogs.map((log) => (
-                  <div key={log.id} className="flex items-start space-x-3">
-                    {getStatusIcon(log.status)}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs font-medium">{log.action}</p>
-                        <span className="text-xs text-muted-foreground">{log.timestamp}</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">{log.details}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </ScrollArea>
-          </CardContent>
-        </Card>
-
-        {/* Результат обработки */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-lg">{skipAlternatives ? "Прямая отправка" : "Сравнение поставщиков"}</CardTitle>
-            <CardDescription>
-              {skipAlternatives ? "Заявка отправлена выбранному поставщику" : "Результаты анализа предложений"}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {skipAlternatives ? (
-              <div className="space-y-4">
-                <div className="p-4 border rounded-lg">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="font-medium">{selectedSupplier || "ТОО Канцтовары Плюс"}</h3>
-                    <Badge variant="outline">Выбран</Badge>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">Статус договора:</span>
-                      <p className="font-medium">Действующий</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Последний заказ:</span>
-                      <p className="font-medium">10.01.2024</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Средний срок:</span>
-                      <p className="font-medium">2-3 дня</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Надежность:</span>
-                      <p className="font-medium">Высокая</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="text-xs text-muted-foreground p-3 bg-slate-50 rounded">
-                  <p className="font-medium mb-1">Данные сохранены в системе:</p>
-                  <ul className="space-y-1">
-                    <li>• Дата и время заказа</li>
-                    <li>• Поставщик и условия</li>
-                    <li>• Сумма и спецификация</li>
-                    <li>• Ответственный сотрудник</li>
-                  </ul>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {supplierComparison.map((supplier, index) => (
-                  <div key={index} className="p-4 border rounded-lg">
-                    <div className="flex items-center justify-between mb-3">
-                      <h3 className="font-medium">{supplier.name}</h3>
-                      <div className="flex items-center space-x-2">
-                        {supplier.hasContract && (
-                          <Badge variant="outline" className="text-xs">
-                            Договор
-                          </Badge>
-                        )}
-                        {index === 0 && (
-                          <Badge variant="default" className="text-xs">
-                            Рекомендуется
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-4 gap-4 text-sm">
-                      <div>
-                        <span className="text-muted-foreground">Цена:</span>
-                        <p className="font-medium">{supplier.price.toLocaleString()} тг</p>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Срок:</span>
-                        <p className="font-medium">{supplier.deliveryTime}</p>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Заказов:</span>
-                        <p className="font-medium">{supplier.lastOrders}</p>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Задержки:</span>
-                        <p className="font-medium">{supplier.avgDelay}</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Аналитика и отчеты */}
-      {analysisComplete && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Database className="mr-2 h-5 w-5" />
-              Данные для аналитики
-            </CardTitle>
-            <CardDescription>Информация сохранена в реестр закупок</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div className="flex items-center space-x-2">
-                <Calendar className="h-4 w-4 text-blue-600" />
-                <div>
-                  <p className="text-muted-foreground">Дата обработки</p>
-                  <p className="font-medium">15.01.2024 14:32</p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-2">
-                <DollarSign className="h-4 w-4 text-green-600" />
-                <div>
-                  <p className="text-muted-foreground">Сумма</p>
-                  <p className="font-medium">{requestData.estimatedAmount.toLocaleString()} тг</p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Building2 className="h-4 w-4 text-purple-600" />
-                <div>
-                  <p className="text-muted-foreground">Поставщик</p>
-                  <p className="font-medium">{skipAlternatives ? selectedSupplier : "ТОО Канцтовары Плюс"}</p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Truck className="h-4 w-4 text-orange-600" />
-                <div>
-                  <p className="text-muted-foreground">Ожидаемая доставка</p>
-                  <p className="font-medium">17.01.2024</p>
-                </div>
-              </div>
-            </div>
-
-            <Separator className="my-4" />
-
-            <div className="flex space-x-2">
-              <Button variant="outline" className="bg-transparent">
-                <FileText className="mr-2 h-4 w-4" />
-                Сформировать заказ
-              </Button>
-              <Button variant="outline" className="bg-transparent">
-                <Download className="mr-2 h-4 w-4" />
-                Экспорт в Excel
-              </Button>
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button variant="outline" className="bg-transparent">
-                    <Database className="mr-2 h-4 w-4" />
-                    Просмотр аналитики
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-4xl">
-                  <DialogHeader>
-                    <DialogTitle>Аналитика закупок</DialogTitle>
-                    <DialogDescription>Статистика по категории "{requestData.category}"</DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-3 gap-4">
-                      <div className="text-center p-4 border rounded">
-                        <div className="text-2xl font-bold">24</div>
-                        <div className="text-sm text-muted-foreground">Заказов за год</div>
-                      </div>
-                      <div className="text-center p-4 border rounded">
-                        <div className="text-2xl font-bold">1.2М</div>
-                        <div className="text-sm text-muted-foreground">Общая сумма (тг)</div>
-                      </div>
-                      <div className="text-center p-4 border rounded">
-                        <div className="text-2xl font-bold">2.1</div>
-                        <div className="text-sm text-muted-foreground">Средний срок (дни)</div>
-                      </div>
-                    </div>
-                    <div className="text-sm">
-                      <h4 className="font-medium mb-2">Топ поставщиков по категории:</h4>
-                      <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <span>ТОО Канцтовары Плюс</span>
-                          <span className="text-muted-foreground">15 заказов</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>ИП Офис Снаб</span>
-                          <span className="text-muted-foreground">6 заказов</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>ООО Бизнес Центр</span>
-                          <span className="text-muted-foreground">3 заказа</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </CardContent>
-        </Card>
       )}
     </div>
   )

@@ -1,7 +1,7 @@
-// API для отправки сообщений через WhatsApp
+// API для отправки сообщений через WhatsApp (Whapi.Cloud)
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import whatsappService from '@/lib/whatsapp'
+import whapiService from '@/lib/whapi'
 
 /**
  * POST /api/whatsapp/send
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     }
     
     // Проверяем, готов ли клиент
-    if (!whatsappService.isReady()) {
+    if (!whapiService.isReady()) {
       return NextResponse.json(
         { 
           success: false, 
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     }
     
     // Отправляем сообщение
-    await whatsappService.sendMessage(phoneNumber, message)
+    await whapiService.sendMessage(phoneNumber, message)
     
     return NextResponse.json({
       success: true,

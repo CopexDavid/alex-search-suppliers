@@ -1,7 +1,7 @@
 // API для полной очистки сессии WhatsApp
 import { NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import whatsappService from '@/lib/whatsapp'
+import whapiService from '@/lib/whapi'
 
 /**
  * POST /api/whatsapp/clear-session
@@ -14,11 +14,11 @@ export async function POST() {
     console.log('🗑️ Starting full WhatsApp session cleanup...')
     
     // Сначала отключаем клиент
-    await whatsappService.disconnect()
+    await whapiService.disconnect()
     console.log('✅ WhatsApp client disconnected')
     
     // Затем очищаем сессию
-    await whatsappService.clearSession()
+    await whapiService.clearSession()
     console.log('✅ Session data cleared')
     
     // Дополнительная очистка временных файлов Chrome

@@ -30,6 +30,7 @@ import {
   Star,
   CheckCircle,
   Clock,
+  Brain,
 } from "lucide-react"
 import Link from "next/link"
 import { RequestEditDialog } from "@/components/request-edit-dialog"
@@ -42,6 +43,11 @@ interface Position {
   unit: string
   price?: number
   totalPrice?: number
+  searchStatus?: string
+  quotesRequested?: number
+  quotesReceived?: number
+  aiRecommendation?: string
+  finalChoice?: string
 }
 
 interface Supplier {
@@ -98,6 +104,7 @@ export default function RequestDetailPage() {
   const [searching, setSearching] = useState(false)
   const [searchProgress, setSearchProgress] = useState("")
   const [searchingPositions, setSearchingPositions] = useState<Record<string, boolean>>({}) // Отслеживаем поиск по каждой позиции
+  const [sending, setSending] = useState(false)
 
   useEffect(() => {
     loadRequest()
@@ -201,6 +208,117 @@ export default function RequestDetailPage() {
     } finally {
       setSearchingPositions(prev => ({ ...prev, [positionId]: false }))
     }
+  }
+
+  // Отправка запросов КП поставщикам
+  const handleSendQuoteRequests = async () => {
+    if (!request) return
+    
+    setSending(true)
+    try {
+      const response = await fetch(`/api/requests/${requestId}/send-quotes-requests`, {
+        method: 'POST',
+        credentials: 'include'
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || 'Ошибка при отправке запросов КП')
+      }
+
+      const data = await response.json()
+      alert(`✅ ${data.message}`)
+      
+      // Обновляем данные заявки
+      await loadRequest()
+    } catch (err: any) {
+      console.error('Send quotes error:', err)
+      alert(err.message || 'Ошибка при отправке запросов КП')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  // Получение общего прогресса
+  const getOverallProgress = (): number => {
+    if (!request?.positions?.length) return 0
+    
+    const totalSteps = 5 // Всего этапов: загрузка, поиск, запросы КП, получение КП, анализ
+    let completedSteps = 1 // Загрузка всегда завершена
+    
+    if (request.status === 'SEARCHING' || request.status === 'PENDING_QUOTES' || request.status === 'COMPARING') {
+      completedSteps = 2 // Поиск завершен
+    }
+    
+    if (request.status === 'PENDING_QUOTES' || request.status === 'COMPARING') {
+      completedSteps = 3 // Запросы КП отправлены
+    }
+    
+    const totalQuotesNeeded = request.positions.length * 3 // Минимум 3 КП на позицию
+    const totalQuotesReceived = request.positions.reduce((sum, pos) => sum + (pos.quotesReceived || 0), 0)
+    
+    if (totalQuotesReceived >= totalQuotesNeeded) {
+      completedSteps = 4 // КП получены
+    }
+    
+    if (request.status === 'COMPARING') {
+      completedSteps = 5 // Анализ завершен
+    }
+    
+    return Math.round((completedSteps / totalSteps) * 100)
+  }
+
+  // Получение этапов процесса
+  const getProcessSteps = () => {
+    const steps = [
+      {
+        title: 'Загрузка заявки',
+        description: 'Заявка загружена и обработана',
+        status: 'completed',
+        timestamp: request?.createdAt
+      },
+      {
+        title: 'Поиск поставщиков',
+        description: `Найдено ${request?.suppliers?.length || 0} поставщиков`,
+        status: request?.suppliers?.length ? 'completed' : 'in_progress',
+        timestamp: request?.updatedAt
+      },
+      {
+        title: 'Отправка запросов КП',
+        description: 'Запросы коммерческих предложений отправлены поставщикам',
+        status: request?.status === 'PENDING_QUOTES' || request?.status === 'COMPARING' ? 'completed' : 
+               request?.status === 'SEARCHING' ? 'in_progress' : 'pending'
+      },
+      {
+        title: 'Получение КП',
+        description: `Получено ${request?.positions?.reduce((sum, pos) => sum + (pos.quotesReceived || 0), 0) || 0} коммерческих предложений`,
+        status: request?.status === 'COMPARING' ? 'completed' : 
+               request?.status === 'PENDING_QUOTES' ? 'in_progress' : 'pending'
+      },
+      {
+        title: 'ИИ анализ и рекомендации',
+        description: 'Анализ предложений и выбор лучших вариантов',
+        status: request?.status === 'COMPARING' ? 'in_progress' : 'pending'
+      }
+    ]
+    
+    return steps
+  }
+
+  // Получение статуса позиции
+  const getPositionStatusBadge = (status: string) => {
+    const statusMap: Record<string, { variant: any, text: string }> = {
+      'PENDING': { variant: 'secondary', text: 'Ожидание' },
+      'SEARCHING': { variant: 'default', text: 'Поиск поставщиков' },
+      'SUPPLIERS_FOUND': { variant: 'default', text: 'Поставщики найдены' },
+      'QUOTES_REQUESTED': { variant: 'default', text: 'Запросы КП отправлены' },
+      'QUOTES_RECEIVED': { variant: 'default', text: 'КП получены' },
+      'AI_ANALYZED': { variant: 'default', text: 'Анализ ИИ' },
+      'USER_DECIDED': { variant: 'default', text: 'Решение принято' },
+      'COMPLETED': { variant: 'outline', text: 'Завершено' }
+    }
+    
+    return statusMap[status] || { variant: 'secondary', text: 'Неизвестно' }
   }
 
   const handleDelete = async () => {
@@ -929,11 +1047,141 @@ export default function RequestDetailPage() {
             </TabsList>
 
             <TabsContent value="process" className="py-4">
-              <div className="text-center text-muted-foreground py-8">
-                <AlertCircle className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                <p>Процесс обработки заявки будет отображаться здесь</p>
-                <p className="text-sm mt-1">Функционал в разработке</p>
-              </div>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Процесс обработки заявки</CardTitle>
+                  <CardDescription>
+                    Отслеживание этапов поиска поставщиков и получения коммерческих предложений
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {/* Общий прогресс */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span>Общий прогресс</span>
+                      <span>{getOverallProgress()}%</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div 
+                        className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
+                        style={{ width: `${getOverallProgress()}%` }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  {/* Этапы процесса */}
+                  <div className="space-y-4">
+                    {getProcessSteps().map((step, index) => (
+                      <div key={index} className="flex items-start space-x-3">
+                        <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                          step.status === 'completed' ? 'bg-green-100 text-green-600' :
+                          step.status === 'in_progress' ? 'bg-blue-100 text-blue-600' :
+                          'bg-gray-100 text-gray-400'
+                        }`}>
+                          {step.status === 'completed' ? (
+                            <CheckCircle className="h-5 w-5" />
+                          ) : step.status === 'in_progress' ? (
+                            <Clock className="h-5 w-5" />
+                          ) : (
+                            <div className="w-3 h-3 rounded-full bg-current"></div>
+                          )}
+                        </div>
+                        <div className="flex-1">
+                          <h4 className={`font-medium ${
+                            step.status === 'completed' ? 'text-green-900' :
+                            step.status === 'in_progress' ? 'text-blue-900' :
+                            'text-gray-500'
+                          }`}>
+                            {step.title}
+                          </h4>
+                          <p className="text-sm text-gray-600 mt-1">{step.description}</p>
+                          {step.timestamp && (
+                            <p className="text-xs text-gray-400 mt-1">
+                              {new Date(step.timestamp).toLocaleString('ru-RU')}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Детали по позициям */}
+                  <div className="border-t pt-6">
+                    <h3 className="text-lg font-medium mb-4">Статус по позициям</h3>
+                    <div className="space-y-4">
+                      {request?.positions?.map((position) => (
+                        <div key={position.id} className="border rounded-lg p-4">
+                          <div className="flex justify-between items-start mb-2">
+                            <h4 className="font-medium">{position.name}</h4>
+                            <Badge variant={getPositionStatusBadge(position.searchStatus || 'PENDING').variant}>
+                              {getPositionStatusBadge(position.searchStatus || 'PENDING').text}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-gray-600 mb-3">{position.description}</p>
+                          
+                          <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                              <span className="text-gray-500">Запросов КП:</span>
+                              <span className="ml-2 font-medium">{position.quotesRequested || 0}</span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">Получено КП:</span>
+                              <span className="ml-2 font-medium">{position.quotesReceived || 0}</span>
+                            </div>
+                          </div>
+
+                          {position.aiRecommendation && (
+                            <div className="mt-3 p-3 bg-blue-50 rounded-lg">
+                              <p className="text-sm font-medium text-blue-900">ИИ рекомендация:</p>
+                              <p className="text-sm text-blue-700 mt-1">{position.aiRecommendation}</p>
+                            </div>
+                          )}
+
+                          {position.finalChoice && (
+                            <div className="mt-3 p-3 bg-green-50 rounded-lg">
+                              <p className="text-sm font-medium text-green-900">Выбранный поставщик:</p>
+                              <p className="text-sm text-green-700 mt-1">{position.finalChoice}</p>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Действия */}
+                  <div className="border-t pt-6">
+                    <div className="flex space-x-3">
+                      {request?.status === 'SEARCHING' && (
+                        <Button 
+                          onClick={handleSendQuoteRequests}
+                          disabled={sending}
+                        >
+                          {sending ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Отправка запросов...
+                            </>
+                          ) : (
+                            <>
+                              <MessageSquare className="mr-2 h-4 w-4" />
+                              Отправить запросы КП
+                            </>
+                          )}
+                        </Button>
+                      )}
+                      
+                      {request?.status === 'COMPARING' && (
+                        <Button asChild>
+                          <Link href="/ai-analysis">
+                            <Brain className="mr-2 h-4 w-4" />
+                            Перейти к ИИ анализу
+                          </Link>
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </TabsContent>
 
             <TabsContent value="documents" className="py-4">

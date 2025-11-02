@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
 
     // Логирование входа
     const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip')
-    await logAction(user.id, 'login', 'user', user.id, null, ipAddress || undefined)
+    await logAction(user.id, 'LOGIN', 'User', user.id, { email: user.email }, ipAddress || undefined)
 
     // Создаем response с данными пользователя (без пароля)
     const response = NextResponse.json({
@@ -72,11 +72,14 @@ export async function POST(request: NextRequest) {
     })
 
     // Установка cookie через response.cookies API
+    // Для HTTPS используем secure: true
+    const isProduction = process.env.NODE_ENV === 'production'
+    const isHttps = request.url.startsWith('https://')
     response.cookies.set({
       name: 'auth_token',
       value: token,
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: isProduction || isHttps, // secure для production или HTTPS
       sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 7, // 7 дней
       path: '/',

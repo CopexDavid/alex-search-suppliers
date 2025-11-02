@@ -20,6 +20,7 @@ model User {
   auditLogs AuditLog[]
   requests  Request[]
   sessions  Session[]
+  chats     Chat[]
 
   @@map("users")
 }
@@ -54,6 +55,7 @@ model Request {
   suppliers     RequestSupplier[]
   creator       User              @relation(fields: [creatorId], references: [id])
   tasks         Task[]
+  chats         Chat[]
 
   @@map("requests")
 }
@@ -66,9 +68,16 @@ model Position {
   description String?
   quantity    Float
   unit        String
+  searchStatus PositionSearchStatus @default(PENDING)
+  quotesRequested Int @default(0) // Количество запрошенных КП
+  quotesReceived Int @default(0)  // Количество полученных КП
+  aiRecommendation String? // ИИ рекомендация лучшего поставщика
+  finalChoice String? // Финальный выбор пользователя
   createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt @default(now())
   request     Request     @relation(fields: [requestId], references: [id], onDelete: Cascade)
   quoteItems  QuoteItem[]
+  positionChats PositionChat[]
 
   @@map("positions")
 }
@@ -219,9 +228,148 @@ model SystemSetting {
   key       String   @unique
   value     String
   type      String   @default("string")
+  createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("system_settings")
+}
+
+model IncomingMessage {
+  id          String   @id @default(uuid())
+  messageId   String   @unique // ID сообщения от WhatsApp/Whapi
+  phoneNumber String   // Номер отправителя
+  message     String   // Текст сообщения
+  messageType String   @default("text") // text, image, document, etc.
+  chatId      String   // ID чата
+  timestamp   DateTime // Время получения сообщения
+  source      String   @default("whapi") // whapi, telegram, etc.
+  processed   Boolean  @default(false) // Обработано ли сообщение
+  rawData     Json?    // Полные данные от API
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("incoming_messages")
+  @@index([phoneNumber])
+  @@index([timestamp])
+  @@index([processed])
+}
+
+model Chat {
+  id          String      @id @default(uuid())
+  phoneNumber String      @unique // Номер телефона клиента/поставщика
+  contactName String?     // Имя контакта
+  requestId   String?     // Связанная заявка
+  lastMessage String?     // Последнее сообщение
+  lastMessageAt DateTime? // Время последнего сообщения
+  status      ChatStatus  @default(ACTIVE)
+  unreadCount Int         @default(0)
+  assignedTo  String?     // ID менеджера
+  metadata    Json?       // Дополнительные данные
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  
+  // Связи
+  request     Request?    @relation(fields: [requestId], references: [id])
+  assignedUser User?      @relation(fields: [assignedTo], references: [id])
+  messages    ChatMessage[]
+  positionChats PositionChat[]
+
+  @@map("chats")
+  @@index([phoneNumber])
+  @@index([requestId])
+  @@index([status])
+  @@index([lastMessageAt])
+}
+
+model ChatMessage {
+  id          String      @id @default(uuid())
+  chatId      String
+  messageId   String?     // ID от WhatsApp/Whapi
+  direction   MessageDirection // incoming, outgoing
+  sender      String?     // Имя отправителя
+  content     String      // Текст сообщения
+  messageType MessageType @default(TEXT)
+  status      MessageStatus @default(SENT)
+  attachments Json?       // Вложения
+  metadata    Json?       // Метаданные (AI generated, template used, etc.)
+  timestamp   DateTime    // Время сообщения
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  
+  // Связи
+  chat        Chat        @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@map("chat_messages")
+  @@index([chatId])
+  @@index([timestamp])
+  @@index([direction])
+  @@index([status])
+}
+
+enum ChatStatus {
+  ACTIVE
+  WAITING
+  COMPLETED
+  ARCHIVED
+}
+
+enum MessageDirection {
+  INCOMING
+  OUTGOING
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  DOCUMENT
+  AUDIO
+  VIDEO
+  LOCATION
+  CONTACT
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+model PositionChat {
+  id          String   @id @default(uuid())
+  positionId  String
+  chatId      String
+  status      QuoteStatus @default(REQUESTED)
+  requestSentAt DateTime?
+  quoteReceivedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  position    Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  chat        Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@unique([positionId, chatId])
+  @@map("position_chats")
+}
+
+enum PositionSearchStatus {
+  PENDING
+  SEARCHING
+  SUPPLIERS_FOUND
+  QUOTES_REQUESTED
+  QUOTES_RECEIVED
+  AI_ANALYZED
+  USER_DECIDED
+  COMPLETED
+}
+
+enum QuoteStatus {
+  REQUESTED
+  SENT
+  RECEIVED
+  ANALYZED
+  REJECTED
 }
 
 model MessageTemplate {

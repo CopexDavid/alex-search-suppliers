@@ -1,17 +1,17 @@
-// API для получения статуса WhatsApp подключения
+// API для получения статуса WhatsApp подключения через Whapi.Cloud
 import { NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import whatsappService from '@/lib/whatsapp'
+import whapiService from '@/lib/whapi'
 
 /**
  * GET /api/whatsapp/status
- * Возвращает текущий статус WhatsApp клиента
+ * Возвращает текущий статус WhatsApp клиента через Whapi.Cloud
  */
 export async function GET() {
   try {
     await requireAuth()
     
-    const status = whatsappService.getStatus()
+    const status = whapiService.getStatus()
     
     return NextResponse.json({
       success: true,

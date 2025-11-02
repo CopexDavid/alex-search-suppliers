@@ -1,20 +1,20 @@
-// API для инициализации WhatsApp клиента
+// API для инициализации WhatsApp через Whapi.Cloud
 import { NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import whatsappService from '@/lib/whatsapp'
+import whapiService from '@/lib/whapi'
 
 /**
  * POST /api/whatsapp/init
- * Инициализирует WhatsApp клиент и начинает процесс аутентификации
+ * Инициализирует WhatsApp инстанс через Whapi.Cloud
  */
 export async function POST() {
   try {
     await requireAuth()
     
-    console.log('🚀 Starting WhatsApp initialization...')
+    console.log('🚀 Starting Whapi.Cloud initialization...')
     
     // Проверяем текущий статус
-    const currentStatus = whatsappService.getStatus()
+    const currentStatus = whapiService.getStatus()
     
     if (currentStatus.status === 'ready') {
       return NextResponse.json({
@@ -32,20 +32,18 @@ export async function POST() {
       })
     }
     
-    // Инициализируем клиент (асинхронно)
-    whatsappService.initialize().catch(err => {
-      console.error('Error during initialization:', err)
-    })
+    // Инициализируем инстанс
+    await whapiService.initialize()
     
-    // Возвращаем текущий статус
+    // Возвращаем обновленный статус
     return NextResponse.json({
       success: true,
-      message: 'WhatsApp initialization started',
-      status: whatsappService.getStatus()
+      message: 'Whapi.Cloud initialization completed',
+      status: whapiService.getStatus()
     })
     
   } catch (error: any) {
-    console.error('❌ Error initializing WhatsApp:', error)
+    console.error('❌ Error initializing Whapi.Cloud:', error)
     return NextResponse.json(
       { 
         success: false, 

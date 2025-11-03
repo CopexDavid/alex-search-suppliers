@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { SearchResult, SearchResponse } from '@/types/search';
 import puppeteer from 'puppeteer';
-import { searchMarketplaces, MarketplaceResult } from '@/services/marketplaceParsers';
+// import { searchMarketplaces, MarketplaceResult } from '@/services/marketplaceParsers'; // ОТКЛЮЧЕНО
 import { YandexSearchService, convertYandexResults } from '@/services/yandexSearch';
 import { SerpApiService, convertSerpApiResults } from '@/services/serpApiSearch';
 
@@ -322,46 +322,47 @@ export async function POST(request: Request) {
       console.log(`✅ Found ${allResults.size} results, skipping SerpAPI search`);
     }
 
-// ДОПОЛНИТЕЛЬНЫЙ ПОИСК ПО МАРКЕТПЛЕЙСАМ если все еще мало результатов
-const MIN_RESULTS_THRESHOLD = 5; // Минимальное количество результатов для основного поиска
-    
-    if (allResults.size < MIN_RESULTS_THRESHOLD) {
-      console.log(`\n⚠️  Found only ${allResults.size} results, starting marketplace search...`);
-      
-      try {
-        const marketplaceResults = await searchMarketplaces(searchQuery);
-        
-        // Добавляем результаты маркетплейсов к общим результатам
-        for (const marketResult of marketplaceResults) {
-          if (!allResults.has(marketResult.url)) {
-            console.log(`  ✅ Added marketplace result: ${marketResult.url}`);
-            console.log(`      📄 ${marketResult.title}`);
-            console.log(`      🏪 Source: ${marketResult.source}`);
-            if (marketResult.price) {
-              console.log(`      💰 ${marketResult.price}`);
-            }
-            
-            allResults.set(marketResult.url, {
-              url: marketResult.url,
-              title: marketResult.title,
-              snippet: marketResult.snippet || marketResult.description,
-              price: marketResult.price,
-              companyName: marketResult.companyName,
-              description: marketResult.description,
-              source: marketResult.source // Добавляем источник
-            });
-          }
-        }
-        
-        console.log(`\n📊 AFTER MARKETPLACE SEARCH: ${allResults.size} total unique websites found`);
-        
-      } catch (error) {
-        console.error('❌ Error in marketplace search:', error);
-      }
+// ДОПОЛНИТЕЛЬНЫЙ ПОИСК ПО МАРКЕТПЛЕЙСАМ - ОТКЛЮЧЕНО из-за ошибок
+// const MIN_RESULTS_THRESHOLD = 5; // Минимальное количество результатов для основного поиска
+//     
+//     if (allResults.size < MIN_RESULTS_THRESHOLD) {
+//       console.log(`\n⚠️  Found only ${allResults.size} results, starting marketplace search...`);
+//       
+//       try {
+//         const marketplaceResults = await searchMarketplaces(searchQuery);
+//         
+//         // Добавляем результаты маркетплейсов к общим результатам
+//         for (const marketResult of marketplaceResults) {
+//           if (!allResults.has(marketResult.url)) {
+//             console.log(`  ✅ Added marketplace result: ${marketResult.url}`);
+//             console.log(`      📄 ${marketResult.title}`);
+//             console.log(`      🏪 Source: ${marketResult.source}`);
+//             if (marketResult.price) {
+//               console.log(`      💰 ${marketResult.price}`);
+//             }
+//             
+//             allResults.set(marketResult.url, {
+//               url: marketResult.url,
+//               title: marketResult.title,
+//               snippet: marketResult.snippet || marketResult.description,
+//               price: marketResult.price,
+//               companyName: marketResult.companyName,
+//               description: marketResult.description,
+//               source: marketResult.source // Добавляем источник
+//             });
+//           }
+//         }
+//         
+//         console.log(`\n📊 AFTER MARKETPLACE SEARCH: ${allResults.size} total unique websites found`);
+//         
+//       } catch (error) {
+//         console.error('❌ Error in marketplace search:', error);
+//       }
 
-      // ДОПОЛНИТЕЛЬНЫЙ ПОИСК ПО YANDEX если все еще мало результатов
-      if (allResults.size < MIN_RESULTS_THRESHOLD) {
-        console.log(`\n⚠️  Still only ${allResults.size} results, starting Yandex search...`);
+      // ДОПОЛНИТЕЛЬНЫЙ ПОИСК ПО YANDEX если мало результатов (без маркетплейсов)
+      const MIN_RESULTS_FOR_YANDEX = 5; // Минимальное количество результатов для Yandex
+      if (allResults.size < MIN_RESULTS_FOR_YANDEX) {
+        console.log(`\n⚠️  Found only ${allResults.size} results, starting Yandex search...`);
         
         try {
           const yandexService = new YandexSearchService();

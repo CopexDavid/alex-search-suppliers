@@ -22,10 +22,6 @@ if [ ! -f /app/.db-seeded ] && [ -f /app/scripts/seed.ts ]; then
 fi
 
 echo "Инициализация базы данных завершена!"
-# Для standalone режима Next.js используем node напрямую
-if [ "$1" = "npm" ] && [ "$2" = "start" ]; then
-    exec node .next/standalone/server.js
-else
-    exec "$@"
-fi
+# Запускаем переданную команду
+exec "$@"
 

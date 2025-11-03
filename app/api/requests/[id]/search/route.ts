@@ -67,7 +67,7 @@ export async function POST(
       
       try {
         // Вызываем API для поиска по конкретной позиции (ВСЕГДА локально для внутренних вызовов)
-        const baseUrl = 'http://127.0.0.1:3000' // Принудительно используем IPv4 для внутренних API вызовов
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://alexautozakup.kz' // Используем переменную окружения
         const searchUrl = `${baseUrl}/api/requests/${requestId}/positions/${position.id}/search`
         
         console.log(`🌐 Calling: ${searchUrl}`)

@@ -7,7 +7,7 @@ async function testSearchAPI() {
 
     // Получаем список заявок
     console.log('1. Получение списка заявок...')
-    const requestsRes = await fetch('http://localhost:3000/api/requests', {
+    const requestsRes = await fetch('https://alexautozakup.kz/api/requests', {
       credentials: 'include',
     })
     
@@ -31,7 +31,7 @@ async function testSearchAPI() {
 
     // Запускаем поиск
     console.log('\n3. Запуск поиска поставщиков...')
-    const searchRes = await fetch(`http://localhost:3000/api/requests/${firstRequest.id}/search`, {
+    const searchRes = await fetch(`https://alexautozakup.kz/api/requests/${firstRequest.id}/search`, {
       method: 'POST',
       credentials: 'include',
     })

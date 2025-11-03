@@ -16,7 +16,20 @@ export async function middleware(request: NextRequest) {
   // Все API маршруты обрабатывают авторизацию сами через requireAuth()
   // Пропускаем их здесь, чтобы не было редиректов
   if (pathname.startsWith('/api/')) {
-    return NextResponse.next()
+    const response = NextResponse.next()
+    // Добавляем CORS заголовки для API
+    response.headers.set('Access-Control-Allow-Origin', '*')
+    response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+    response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+    return response
+  }
+
+  // Статические файлы Next.js
+  if (pathname.startsWith('/_next/') || pathname.startsWith('/static/')) {
+    const response = NextResponse.next()
+    // Добавляем заголовки для статических файлов
+    response.headers.set('Cache-Control', 'public, max-age=31536000, immutable')
+    return response
   }
 
   // Проверяем, является ли маршрут публичным
@@ -40,7 +53,12 @@ export async function middleware(request: NextRequest) {
     }
 
     // Пользователь авторизован, продолжаем
-    return NextResponse.next()
+    const response = NextResponse.next()
+    // Добавляем безопасные заголовки
+    response.headers.set('X-Frame-Options', 'DENY')
+    response.headers.set('X-Content-Type-Options', 'nosniff')
+    response.headers.set('Referrer-Policy', 'origin-when-cross-origin')
+    return response
   }
 
   // Если нет токена и маршрут не публичный, перенаправляем на логин
@@ -51,7 +69,12 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
-  return NextResponse.next()
+  const response = NextResponse.next()
+  // Добавляем безопасные заголовки для публичных страниц
+  response.headers.set('X-Frame-Options', 'DENY')
+  response.headers.set('X-Content-Type-Options', 'nosniff')
+  response.headers.set('Referrer-Policy', 'origin-when-cross-origin')
+  return response
 }
 
 export const config = {

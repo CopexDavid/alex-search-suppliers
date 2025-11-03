@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import puppeteer from 'puppeteer'
+import { searchMarketplaces, MarketplaceResult } from '@/services/marketplaceParsers'
+import { YandexSearchService, convertYandexResults } from '@/services/yandexSearch'
 
 const SEARCH_ENGINE_ID = process.env.GOOGLE_SEARCH_ENGINE_ID || 'd7065ea5c59764932'
 
@@ -18,7 +20,7 @@ interface SearchParams {
  */
 async function parseContacts(url: string): Promise<any> {
   try {
-    const baseUrl = 'http://127.0.0.1:3000' // Принудительно IPv4 для внутренних API вызовов
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://alexautozakup.kz' // Используем переменную окружения
     const response = await fetch(`${baseUrl}/api/parse-contacts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -232,6 +234,87 @@ export async function POST(
      }
      
      console.log(`\n📊 SEARCH PHASE COMPLETE: ${allResults.size} unique websites found`)
+    
+    // ДОПОЛНИТЕЛЬНЫЙ ПОИСК ПО МАРКЕТПЛЕЙСАМ если мало результатов
+    const MIN_RESULTS_THRESHOLD = 3; // Минимальное количество результатов
+    
+    if (allResults.size < MIN_RESULTS_THRESHOLD) {
+      console.log(`\n⚠️  Found only ${allResults.size} results, starting marketplace search...`);
+      
+      try {
+        const marketplaceResults = await searchMarketplaces(position.name);
+        
+        // Добавляем результаты маркетплейсов к общим результатам
+        for (const marketResult of marketplaceResults) {
+          if (!allResults.has(marketResult.url)) {
+            console.log(`  ✅ Added marketplace result: ${marketResult.url}`);
+            console.log(`      📄 ${marketResult.title}`);
+            console.log(`      🏪 Source: ${marketResult.source}`);
+            if (marketResult.price) {
+              console.log(`      💰 ${marketResult.price}`);
+            }
+            
+            allResults.set(marketResult.url, {
+              url: marketResult.url,
+              title: marketResult.title,
+              snippet: marketResult.snippet || marketResult.description,
+              price: marketResult.price,
+              companyName: marketResult.companyName,
+              description: marketResult.description,
+              source: marketResult.source // Добавляем источник
+            });
+          }
+        }
+        
+        console.log(`\n📊 AFTER MARKETPLACE SEARCH: ${allResults.size} total unique websites found`);
+        
+      } catch (error) {
+        console.error('❌ Error in marketplace search:', error);
+      }
+
+      // ДОПОЛНИТЕЛЬНЫЙ ПОИСК ПО YANDEX если все еще мало результатов
+      if (allResults.size < MIN_RESULTS_THRESHOLD) {
+        console.log(`\n⚠️  Still only ${allResults.size} results, starting Yandex search...`);
+        
+        try {
+          const yandexService = new YandexSearchService();
+          
+          if (yandexService.isConfigured()) {
+            console.log('🔍 Starting Yandex search for position...');
+            const yandexResults = await yandexService.search(position.name, 30000); // 30 секунд таймаут
+            const convertedResults = convertYandexResults(yandexResults);
+            
+            // Добавляем результаты Yandex к общим результатам
+            for (const yandexResult of convertedResults) {
+              if (!allResults.has(yandexResult.url || '')) {
+                console.log(`  ✅ Added Yandex result: ${yandexResult.url}`);
+                console.log(`      📄 ${yandexResult.title}`);
+                console.log(`      🔍 Source: yandex`);
+                
+                allResults.set(yandexResult.url || '', {
+                  url: yandexResult.url,
+                  title: yandexResult.title,
+                  snippet: yandexResult.snippet,
+                  companyName: yandexResult.companyName,
+                  description: yandexResult.description,
+                  source: 'yandex'
+                });
+              }
+            }
+            
+            console.log(`\n📊 AFTER YANDEX SEARCH: ${allResults.size} total unique websites found`);
+          } else {
+            console.log('⚠️  Yandex Search API not configured, skipping');
+          }
+          
+        } catch (error) {
+          console.error('❌ Error in Yandex search:', error);
+        }
+      }
+      
+    } else {
+      console.log(`✅ Found ${allResults.size} results, skipping additional searches`);
+    }
     
     if (allResults.size === 0) {
       return NextResponse.json({

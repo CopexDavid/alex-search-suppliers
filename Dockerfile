@@ -42,7 +42,7 @@ RUN npx prisma generate
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV SKIP_ENV_VALIDATION=true
 # Используем фиктивные значения для сборки (реальные будут в runtime через .env)
-ENV DATABASE_URL=postgresql://dummy:dummy@localhost:5432/dummy
+ENV DATABASE_URL=postgresql://dummy:dummy@postgres:5432/dummy
 ENV OPENAI_API_KEY=sk-dummy-key-for-build-only
 ENV JWT_SECRET=dummy-secret-for-build
 RUN npm run build

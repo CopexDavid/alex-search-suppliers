@@ -3,6 +3,7 @@ import { SearchResult, SearchResponse } from '@/types/search';
 import puppeteer from 'puppeteer';
 import { searchMarketplaces, MarketplaceResult } from '@/services/marketplaceParsers';
 import { YandexSearchService, convertYandexResults } from '@/services/yandexSearch';
+import { SerpApiService, convertSerpApiResults } from '@/services/serpApiSearch';
 
 const SEARCH_ENGINE_ID = process.env.GOOGLE_SEARCH_ENGINE_ID || 'd7065ea5c59764932';
 
@@ -269,10 +270,59 @@ export async function POST(request: Request) {
     }
     
     console.log('\n' + '='.repeat(60));
-    console.log(`📊 SEARCH PHASE COMPLETE: ${allResults.size} unique websites found`);
+    console.log(`📊 GOOGLE CSE PHASE COMPLETE: ${allResults.size} unique websites found`);
     console.log('='.repeat(60));
     
-// ДОПОЛНИТЕЛЬНЫЙ ПОИСК ПО МАРКЕТПЛЕЙСАМ если мало результатов
+    // ДОПОЛНИТЕЛЬНЫЙ ПОИСК ЧЕРЕЗ SERPAPI если мало результатов
+    const MIN_RESULTS_FOR_SERPAPI = 10; // Порог для запуска SerpAPI
+    
+    if (allResults.size < MIN_RESULTS_FOR_SERPAPI) {
+      console.log(`\n⚠️  Found only ${allResults.size} results, starting SerpAPI search...`);
+
+      try {
+        const serpApiService = new SerpApiService();
+
+        if (serpApiService.isConfigured()) {
+          console.log('🔍 Starting SerpAPI search...');
+          const serpResults = await serpApiService.search(searchQuery, 30000); // 30 секунд таймаут
+          const convertedResults = convertSerpApiResults(serpResults);
+
+          // Добавляем результаты SerpAPI к общим результатам
+          for (const serpResult of convertedResults) {
+            if (!allResults.has(serpResult.url || '')) {
+              console.log(`  ✅ Added SerpAPI result: ${serpResult.url}`);
+              console.log(`      📄 ${serpResult.title}`);
+              console.log(`      🔍 Source: serpapi`);
+              if (serpResult.price) {
+                console.log(`      💰 ${serpResult.price}`);
+              }
+
+              allResults.set(serpResult.url || '', {
+                url: serpResult.url,
+                title: serpResult.title,
+                snippet: serpResult.snippet,
+                price: serpResult.price,
+                companyName: serpResult.companyName,
+                description: serpResult.description,
+                source: 'serpapi'
+              });
+            }
+          }
+
+          console.log(`\n📊 AFTER SERPAPI SEARCH: ${allResults.size} total unique websites found`);
+        } else {
+          console.log('⚠️  SerpAPI not configured, skipping');
+        }
+
+      } catch (error) {
+        console.error('❌ Error in SerpAPI search:', error);
+      }
+
+    } else {
+      console.log(`✅ Found ${allResults.size} results, skipping SerpAPI search`);
+    }
+
+// ДОПОЛНИТЕЛЬНЫЙ ПОИСК ПО МАРКЕТПЛЕЙСАМ если все еще мало результатов
 const MIN_RESULTS_THRESHOLD = 5; // Минимальное количество результатов для основного поиска
     
     if (allResults.size < MIN_RESULTS_THRESHOLD) {

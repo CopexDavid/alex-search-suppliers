@@ -11,7 +11,7 @@ export interface SearchResult {
   foundAt?: string;
   price?: string | null; // Цена из сниппета Google
   prices?: string[]; // Массив цен с сайта
-  source?: string; // Источник: 'google', 'kaspi', 'satu', 'yandex'
+  source?: string; // Источник: 'google', 'kaspi', 'satu', 'yandex', 'serpapi'
 }
 
 export interface SearchResponse {

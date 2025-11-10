@@ -1,5 +1,6 @@
 // Скрипт для начальной инициализации базы данных
-import { PrismaClient, Role } from '@prisma/client'
+import { PrismaClient } from '@prisma/client'
+import { Role } from '../lib/rbac'
 import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
@@ -146,6 +147,7 @@ async function main() {
     { key: 'rating_weight', value: '0.1', type: 'number' },
     { key: 'default_currency', value: 'KZT', type: 'string' },
     { key: 'critical_deadline_hours', value: '48', type: 'number' },
+    { key: 'suppliers_to_contact', value: '3', type: 'number' }, // Количество поставщиков для контакта (1-10)
   ]
 
   for (const setting of settings) {

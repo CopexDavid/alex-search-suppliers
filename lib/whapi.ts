@@ -118,7 +118,7 @@ class WhapiService {
       if (setting && setting.value) {
         this.token = setting.value
         this.updateAuthHeader()
-        console.log('✅ Whapi token loaded from database')
+        // console.log('✅ Whapi token loaded from database')
       }
     } catch (error) {
       console.error('❌ Error loading Whapi token from database:', error)

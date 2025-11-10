@@ -34,6 +34,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { RequestEditDialog } from "@/components/request-edit-dialog"
+import { RequestDeleteDialog } from "@/components/request-delete-dialog"
 
 interface Position {
   id: string
@@ -60,7 +61,7 @@ interface Supplier {
   address?: string
   description?: string
   rating: number
-  tags: string[]
+  tags: string | null
 }
 
 interface RequestSupplier {
@@ -112,7 +113,7 @@ export default function RequestDetailPage() {
 
   useEffect(() => {
     // Автоматический запуск поиска при загрузке заявки без поставщиков
-    if (request && request.suppliers.length === 0 && request.status === "UPLOADED") {
+    if (request && (request.suppliers?.length || 0) === 0 && request.status === "UPLOADED") {
       handleAutoSearch()
     }
   }, [request?.id])
@@ -321,27 +322,6 @@ export default function RequestDetailPage() {
     return statusMap[status] || { variant: 'secondary', text: 'Неизвестно' }
   }
 
-  const handleDelete = async () => {
-    if (!confirm("Вы уверены, что хотите архивировать эту заявку?")) {
-      return
-    }
-
-    try {
-      const response = await fetch(`/api/requests/${requestId}`, {
-        method: "DELETE",
-        credentials: "include",
-      })
-
-      if (response.ok) {
-        router.push("/requests")
-      } else {
-        alert("Ошибка при удалении заявки")
-      }
-    } catch (err) {
-      console.error("Delete error:", err)
-      alert("Ошибка соединения с сервером")
-    }
-  }
 
   const getStatusBadge = (status: string) => {
     const statusMap: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
@@ -485,10 +465,10 @@ export default function RequestDetailPage() {
             </span>
             <div className="flex space-x-2">
               <RequestEditDialog requestId={request.id} initialData={request} />
-              <Button variant="outline" size="sm" onClick={handleDelete}>
-                <Trash2 className="h-4 w-4 mr-2" />
-                Архивировать
-              </Button>
+              <RequestDeleteDialog 
+                requestId={request.id} 
+                requestNumber={request.requestNumber} 
+              />
             </div>
           </CardTitle>
         </CardHeader>
@@ -638,7 +618,7 @@ export default function RequestDetailPage() {
               <Building2 className="mr-2 h-5 w-5" />
               Найденные поставщики
               <span className="ml-2 text-sm font-normal text-muted-foreground">
-                ({request.suppliers.length})
+                ({request.suppliers?.length || 0})
               </span>
             </CardTitle>
             {request.positions.length > 0 && (
@@ -655,7 +635,7 @@ export default function RequestDetailPage() {
                 ) : (
                   <>
                     <Search className="mr-2 h-4 w-4" />
-                    {request.suppliers.length > 0 ? "Обновить поиск" : "Найти поставщиков"}
+                    {(request.suppliers?.length || 0) > 0 ? "Обновить поиск" : "Найти поставщиков"}
                   </>
                 )}
               </Button>
@@ -663,7 +643,7 @@ export default function RequestDetailPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {request.suppliers.length === 0 ? (
+          {(request.suppliers?.length || 0) === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               <Search className="h-16 w-16 mx-auto mb-4 opacity-30" />
               <p className="text-lg mb-2">Поставщики не найдены</p>
@@ -684,7 +664,7 @@ export default function RequestDetailPage() {
                   <Building2 className="h-4 w-4 mr-2" />
                   Все поставщики
                   <Badge variant="secondary" className="ml-2">
-                    {request.suppliers.length}
+                    {request.suppliers?.length || 0}
                   </Badge>
                 </TabsTrigger>
                 {request.positions.map((position, index) => (
@@ -700,7 +680,7 @@ export default function RequestDetailPage() {
               {/* Все поставщики */}
               <TabsContent value="all">
                 <div className="space-y-4">
-                  {request.suppliers.map((rs) => (
+                  {request.suppliers?.map((rs) => (
                     <div
                       key={rs.id}
                       className="p-4 border rounded-lg hover:border-primary/50 transition-colors"
@@ -726,11 +706,11 @@ export default function RequestDetailPage() {
                                   {rs.foundVia === "auto-search" ? "Авто-поиск" : rs.foundVia}
                                 </Badge>
                               )}
-                              {rs.supplier.tags.map((tag) => (
-                                <Badge key={tag} variant="secondary" className="text-xs">
-                                  {tag}
+                              {rs.supplier.tags && (
+                                <Badge variant="secondary" className="text-xs">
+                                  {rs.supplier.tags}
                                 </Badge>
-                              ))}
+                              )}
                             </div>
                           </div>
                         </div>
@@ -875,9 +855,9 @@ export default function RequestDetailPage() {
                   <div className="space-y-4">
                     {(() => {
                       // Фильтруем поставщиков для конкретной позиции
-                      const positionSuppliers = request.suppliers.filter(rs => 
+                      const positionSuppliers = request.suppliers?.filter(rs => 
                         rs.foundVia?.includes(`auto-search-${position.name}`)
-                      )
+                      ) || []
                       
                       return positionSuppliers.length > 0 ? (
                         <>
@@ -910,11 +890,11 @@ export default function RequestDetailPage() {
                                         {rs.foundVia === "auto-search" ? "Авто-поиск" : rs.foundVia}
                                       </Badge>
                                     )}
-                                    {rs.supplier.tags.map((tag) => (
-                                      <Badge key={tag} variant="secondary" className="text-xs">
-                                        {tag}
+                                    {rs.supplier.tags && (
+                                      <Badge variant="secondary" className="text-xs">
+                                        {rs.supplier.tags}
                                       </Badge>
-                                    ))}
+                                    )}
                                   </div>
                                 </div>
                               </div>
@@ -1151,7 +1131,7 @@ export default function RequestDetailPage() {
                   {/* Действия */}
                   <div className="border-t pt-6">
                     <div className="flex space-x-3">
-                      {request?.status === 'SEARCHING' && (
+                      {(request?.status === 'SEARCHING' || (request?.status === 'UPLOADED' && request?.suppliers?.length > 0)) && (
                         <Button 
                           onClick={handleSendQuoteRequests}
                           disabled={sending}

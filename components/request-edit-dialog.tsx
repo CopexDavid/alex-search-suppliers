@@ -52,6 +52,8 @@ export function RequestEditDialog({ requestId, initialData }: RequestEditDialogP
   const [budget, setBudget] = useState("")
   const [currency, setCurrency] = useState("KZT")
   const [priority, setPriority] = useState("1")
+  const [status, setStatus] = useState("UPLOADED")
+  const [searchRegion, setSearchRegion] = useState("KAZAKHSTAN")
   const [positions, setPositions] = useState<Position[]>([])
 
   // Загружаем данные при открытии
@@ -67,6 +69,8 @@ export function RequestEditDialog({ requestId, initialData }: RequestEditDialogP
       setBudget(initialData.budget?.toString() || "")
       setCurrency(initialData.currency || "KZT")
       setPriority(initialData.priority?.toString() || "1")
+      setStatus(initialData.status || "UPLOADED")
+      setSearchRegion(initialData.searchRegion || "KAZAKHSTAN")
       setPositions(
         initialData.positions?.map((p: any) => ({
           id: p.id,
@@ -140,6 +144,8 @@ export function RequestEditDialog({ requestId, initialData }: RequestEditDialogP
           budget: budget ? parseFloat(budget) : null,
           currency,
           priority: parseInt(priority),
+          status,
+          searchRegion,
           positions: positions.map((p) => ({
             id: p.id,
             name: p.name.trim(),
@@ -242,7 +248,7 @@ export function RequestEditDialog({ requestId, initialData }: RequestEditDialogP
             />
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="budget">Бюджет</Label>
               <Input
@@ -273,7 +279,9 @@ export function RequestEditDialog({ requestId, initialData }: RequestEditDialogP
                 </SelectContent>
               </Select>
             </div>
+          </div>
 
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="priority">Приоритет</Label>
               <Select
@@ -291,6 +299,47 @@ export function RequestEditDialog({ requestId, initialData }: RequestEditDialogP
                 </SelectContent>
               </Select>
             </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="status">Статус</Label>
+              <Select
+                value={status}
+                onValueChange={setStatus}
+                disabled={loading || success}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="UPLOADED">Новая</SelectItem>
+                  <SelectItem value="SEARCHING">Поиск поставщиков</SelectItem>
+                  <SelectItem value="PENDING_QUOTES">Ожидание КП</SelectItem>
+                  <SelectItem value="COMPARING">Сравнение предложений</SelectItem>
+                  <SelectItem value="APPROVED">Согласована</SelectItem>
+                  <SelectItem value="REJECTED">Отклонена</SelectItem>
+                  <SelectItem value="COMPLETED">Завершена</SelectItem>
+                  <SelectItem value="ARCHIVED">Архив</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* Регион поиска */}
+          <div className="space-y-2">
+            <Label htmlFor="searchRegion">Регион поиска поставщиков</Label>
+            <Select
+              value={searchRegion}
+              onValueChange={setSearchRegion}
+              disabled={loading || success}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="KAZAKHSTAN">🇰🇿 Только Казахстан</SelectItem>
+                <SelectItem value="CIS">🌍 СНГ (включая Россию)</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Позиции */}

@@ -106,10 +106,10 @@ export async function POST(
     console.log(`📊 Total suppliers found: ${totalSuppliersFound}`)
     console.log('='.repeat(60))
     
-    // Обновляем статус заявки обратно на UPLOADED
+    // Обновляем статус заявки на SEARCHING (поставщики найдены, готовы к отправке КП)
     await prisma.request.update({
       where: { id: requestId },
-      data: { status: 'UPLOADED' as any }
+      data: { status: 'SEARCHING' as any }
     })
     
     // Создаем audit log

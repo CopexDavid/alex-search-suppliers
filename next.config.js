@@ -13,12 +13,34 @@ const config = {
     // your project has ESLint errors.
     ignoreDuringBuilds: true,
   },
-  // Настройки для продакшена
-  poweredByHeader: false,
-  compress: true,
-  // Настройки для статических файлов
-  assetPrefix: process.env.NODE_ENV === 'production' ? '' : '',
-  trailingSlash: false,
+  
+  // Настройки в зависимости от окружения
+  ...(process.env.NODE_ENV === 'production' ? {
+    // Настройки для продакшена
+    poweredByHeader: false,
+    compress: true,
+    assetPrefix: '',
+    trailingSlash: false,
+  } : {
+    // Настройки для разработки
+    poweredByHeader: true,
+    compress: false,
+    // Включаем hot reload и fast refresh
+    reactStrictMode: true,
+    // Отключаем минификацию в dev режиме для лучшего дебага
+    swcMinify: false,
+  }),
+
+  // Общие настройки
+  experimental: {
+    // Включаем server components
+    serverComponentsExternalPackages: ['puppeteer'],
+  },
+  
+  // Настройки для работы с внешними доменами (если нужно)
+  images: {
+    domains: ['localhost'],
+  },
 }
 
 module.exports = config

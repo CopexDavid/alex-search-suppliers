@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
 import prisma from '@/lib/prisma'
+import openaiService from '@/lib/openai'
 
 interface AnalyzeParams {
   params: {
@@ -58,9 +59,9 @@ export async function POST(
     }
 
     // Проверяем, что есть достаточно КП для анализа
-    if (position.quotesReceived < 3) {
+    if (position.quotesReceived < 1) {
       return NextResponse.json(
-        { error: 'Недостаточно коммерческих предложений для анализа (минимум 3)' },
+        { error: 'Недостаточно коммерческих предложений для анализа (минимум 1)' },
         { status: 400 }
       )
     }

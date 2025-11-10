@@ -11,6 +11,7 @@ import { Send, Eye, Check, Filter, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { RequestUploadDialog } from "@/components/request-upload-dialog"
 import { RequestCreateDialog } from "@/components/request-create-dialog"
+import { RequestDeleteDialog } from "@/components/request-delete-dialog"
 
 interface Position {
   id: string
@@ -248,6 +249,11 @@ export default function RequestsPage() {
                             Завершить
                           </Button>
                         )}
+                        <RequestDeleteDialog 
+                          requestId={request.id} 
+                          requestNumber={request.requestNumber}
+                          onDeleted={loadRequests}
+                        />
                       </div>
                     </TableCell>
                   </TableRow>

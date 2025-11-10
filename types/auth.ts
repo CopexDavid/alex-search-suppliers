@@ -1,5 +1,5 @@
 // Типы для авторизации
-import { Role } from '@prisma/client'
+import { Role } from '../lib/rbac'
 
 export interface LoginRequest {
   email: string

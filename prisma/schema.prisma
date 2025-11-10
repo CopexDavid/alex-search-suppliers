@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -21,6 +21,7 @@ model User {
   requests  Request[]
   sessions  Session[]
   chats     Chat[]
+  decisions RequestDecision[]
 
   @@map("users")
 }
@@ -47,6 +48,7 @@ model Request {
   description   String?
   originalFile  String?
   priority      Int               @default(0)
+  searchRegion  String            @default("KAZAKHSTAN") // KAZAKHSTAN или CIS
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
   approvals     Approval[]
@@ -56,6 +58,8 @@ model Request {
   creator       User              @relation(fields: [creatorId], references: [id])
   tasks         Task[]
   chats         Chat[]
+  commercialOffers CommercialOffer[]
+  decision      RequestDecision?
 
   @@map("requests")
 }
@@ -89,7 +93,7 @@ model Supplier {
   address         String?
   rating          Float             @default(0)
   contractValidTo DateTime?
-  tags            String[]
+  tags            String?
   isActive        Boolean           @default(true)
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
@@ -273,6 +277,8 @@ model Chat {
   assignedUser User?      @relation(fields: [assignedTo], references: [id])
   messages    ChatMessage[]
   positionChats PositionChat[]
+  commercialOffers CommercialOffer[]
+  assistantThread AssistantThread?
 
   @@map("chats")
   @@index([phoneNumber])
@@ -414,4 +420,107 @@ enum TaskStatus {
   IN_PROGRESS
   COMPLETED
   FAILED
+}
+
+model CommercialOffer {
+  id              String   @id @default(uuid())
+  chatId          String
+  requestId       String
+  fileName        String
+  filePath        String?  // Путь к сохраненному файлу
+  mimeType        String
+  
+  // Основная информация из документа
+  totalPrice      Float?
+  currency        String   @default("KZT")
+  company         String?
+  
+  // Дополнительная информация
+  deliveryTerm    String?
+  paymentTerm     String?
+  validUntil      String?
+  
+  // Позиции товаров/услуг (JSON)
+  positions       String   // JSON массив позиций
+  
+  // Метаданные парсинга
+  confidence      Int      @default(0)
+  needsManualReview Boolean @default(true)
+  extractedText   String?  // Извлеченный текст для ручной проверки
+  
+  // Статус обработки
+  status          CommercialOfferStatus @default(RECEIVED)
+  reviewedBy      String?  // ID пользователя, который проверил
+  reviewedAt      DateTime?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Связи
+  chat            Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  request         Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  decisions       RequestDecision[]
+
+  @@map("commercial_offers")
+  @@index([chatId])
+  @@index([requestId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum CommercialOfferStatus {
+  RECEIVED      // Получено и обработано
+  REVIEWING     // На ручной проверке
+  APPROVED      // Одобрено
+  REJECTED      // Отклонено
+  ARCHIVED      // Архивировано
+}
+
+model RequestDecision {
+  id                String   @id @default(uuid())
+  requestId         String   @unique
+  selectedOfferId   String
+  decidedBy         String
+  reason            String
+  
+  // Финальные данные
+  finalPrice        Float
+  finalCurrency     String   @default("KZT")
+  selectedSupplier  String
+  
+  createdAt         DateTime @default(now())
+  
+  // Связи
+  request           Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  selectedOffer     CommercialOffer @relation(fields: [selectedOfferId], references: [id])
+  decisionMaker     User     @relation(fields: [decidedBy], references: [id])
+
+  @@map("request_decisions")
+  @@index([requestId])
+  @@index([decidedBy])
+  @@index([createdAt])
+}
+
+model AssistantThread {
+  id            String   @id @default(uuid())
+  chatId        String   @unique
+  threadId      String   @unique // OpenAI Thread ID
+  assistantId   String   // OpenAI Assistant ID
+  
+  // Метаданные
+  supplierName  String?
+  requestId     String?
+  lastMessageAt DateTime?
+  messageCount  Int      @default(0)
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  // Связи
+  chat          Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  
+  @@map("assistant_threads")
+  @@index([chatId])
+  @@index([threadId])
+  @@index([requestId])
 }

@@ -47,6 +47,7 @@ export function RequestCreateDialog() {
   const [budget, setBudget] = useState("")
   const [currency, setCurrency] = useState("KZT")
   const [priority, setPriority] = useState("1") // 0-Низкий, 1-Средний, 2-Высокий
+  const [searchRegion, setSearchRegion] = useState("KAZAKHSTAN")
   
   // Позиции
   const [positions, setPositions] = useState<Position[]>([
@@ -114,6 +115,7 @@ export function RequestCreateDialog() {
           budget: budget ? parseFloat(budget) : null,
           currency,
           priority: parseInt(priority),
+          searchRegion,
           positions: positions.map((p) => ({
             name: p.name.trim(),
             description: p.description.trim() || p.name.trim(),
@@ -274,6 +276,24 @@ export function RequestCreateDialog() {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          {/* Регион поиска */}
+          <div className="space-y-2">
+            <Label htmlFor="searchRegion">Регион поиска поставщиков</Label>
+            <Select
+              value={searchRegion}
+              onValueChange={setSearchRegion}
+              disabled={loading || success}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="KAZAKHSTAN">🇰🇿 Только Казахстан</SelectItem>
+                <SelectItem value="CIS">🌍 СНГ (включая Россию)</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Позиции */}

@@ -4,6 +4,7 @@ import { requireAuth } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import whapiService from '@/lib/whapi'
 import openaiService from '@/lib/openai'
+import { selectBestSuppliers, getSuppliersToContactCount } from '@/utils/supplierSelector'
 
 /**
  * POST /api/requests/[id]/send-quotes-requests
@@ -51,14 +52,85 @@ export async function POST(
     const results = []
     let totalSent = 0
 
-    // Для каждой позиции отправляем запросы 5 лучшим поставщикам
+    // Для каждой позиции отправляем запросы лучшим поставщикам (выбранным через ИИ)
     for (const position of requestData.positions) {
       console.log(`📋 Обрабатываем позицию: ${position.name}`)
       
-      // Берем топ-5 поставщиков по релевантности (они уже отсортированы по релевантности поиска)
-      const suppliersToContact = requestData.suppliers
-        .filter(rs => rs.supplier.whatsapp) // Только с WhatsApp
-        .slice(0, 5) // Топ-5 самых релевантных
+      // Получаем настройку количества поставщиков
+      const maxSuppliers = await getSuppliersToContactCount()
+      console.log(`🎯 Будем контактировать с ${maxSuppliers} лучшими поставщиками`)
+      
+      // Подготавливаем кандидатов для ИИ анализа - только поставщики, найденные для этой позиции
+      let candidates = requestData.suppliers
+        .filter(rs => 
+          rs.supplier.whatsapp && // Только с WhatsApp
+          rs.foundVia?.includes(`auto-search-${position.name}`) // Только найденные для этой позиции
+        )
+        .map(rs => ({
+          id: rs.supplier.id,
+          name: rs.supplier.name,
+          description: rs.supplier.description,
+          website: rs.supplier.website,
+          address: rs.supplier.address,
+          tags: rs.supplier.tags,
+          rating: rs.supplier.rating,
+          foundVia: rs.foundVia || 'search',
+          searchRelevance: 0.8, // Базовая релевантность поиска
+          contacts: {
+            email: rs.supplier.email,
+            phone: rs.supplier.phone,
+            whatsapp: rs.supplier.whatsapp
+          }
+        }))
+      
+      // Если нет специфичных поставщиков для позиции, используем всех доступных
+      if (candidates.length === 0) {
+        console.log(`⚠️ Нет специфичных поставщиков для позиции: ${position.name}, используем всех доступных`)
+        
+        candidates = requestData.suppliers
+          .filter(rs => rs.supplier.whatsapp) // Только с WhatsApp
+          .map(rs => ({
+            id: rs.supplier.id,
+            name: rs.supplier.name,
+            description: rs.supplier.description,
+            website: rs.supplier.website,
+            address: rs.supplier.address,
+            tags: rs.supplier.tags,
+            rating: rs.supplier.rating,
+            foundVia: rs.foundVia || 'search',
+            searchRelevance: 0.5, // Пониженная релевантность для fallback
+            contacts: {
+              email: rs.supplier.email,
+              phone: rs.supplier.phone,
+              whatsapp: rs.supplier.whatsapp
+            }
+          }))
+        
+        if (candidates.length === 0) {
+          console.log(`⚠️ Нет поставщиков с WhatsApp вообще для позиции: ${position.name}`)
+          continue
+        }
+      }
+      
+      // Используем ИИ для выбора лучших поставщиков
+      console.log(`🤖 Анализируем ${candidates.length} поставщиков через ИИ...`)
+      const selectedSuppliers = await selectBestSuppliers(
+        {
+          name: position.name,
+          description: position.description,
+          quantity: position.quantity,
+          unit: position.unit
+        },
+        candidates,
+        maxSuppliers
+      )
+      
+      console.log(`✅ ИИ выбрал ${selectedSuppliers.length} лучших поставщиков`)
+      
+      // Отправляем запросы выбранным поставщикам
+      const suppliersToContact = selectedSuppliers.map(analysis => 
+        requestData.suppliers.find(rs => rs.supplier.id === analysis.supplierId)
+      ).filter(Boolean)
       
       for (const requestSupplier of suppliersToContact) {
         const supplier = requestSupplier.supplier

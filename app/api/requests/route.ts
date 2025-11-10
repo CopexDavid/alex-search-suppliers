@@ -64,6 +64,13 @@ export async function GET(request: NextRequest) {
               }
             }
           },
+          commercialOffers: {
+            where: {
+              confidence: { gte: 70 },
+              needsManualReview: false
+            },
+            orderBy: { createdAt: 'desc' }
+          },
           _count: {
             select: {
               quotes: true,
@@ -119,6 +126,7 @@ export async function POST(request: NextRequest) {
       deadline,
       budget,
       currency = 'KZT',
+      searchRegion = 'KAZAKHSTAN',
       positions,
     } = body
 
@@ -150,6 +158,7 @@ export async function POST(request: NextRequest) {
         deadline: new Date(deadline),
         budget,
         currency,
+        searchRegion,
         creatorId: user.id,
         status: RequestStatus.UPLOADED,
         positions: {

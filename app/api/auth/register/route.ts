@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { hashPassword, logAction, requireRole } from '@/lib/auth'
-import { Role } from '@prisma/client'
+import { Role } from '../../../../lib/rbac'
 
 export async function POST(request: NextRequest) {
   try {

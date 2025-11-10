@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox"
 import { Textarea } from "@/components/ui/textarea"
 // import { useToast } from "@/hooks/use-toast" // Не используется в проекте
-import { Plus, Edit, Trash2, Search, History, Phone, Mail, Star, Globe, MessageSquare, Loader2 } from "lucide-react"
+import { Plus, Edit, Trash2, Search, History, Phone, Mail, Star, Globe, MessageSquare, Loader2, ChevronLeft, ChevronRight } from "lucide-react"
 
 // Типы данных
 interface Supplier {
@@ -34,7 +34,7 @@ interface Supplier {
   description?: string
   rating: number
   contractValidTo?: string
-  tags: string[]
+  tags: string | null
   isActive: boolean
   createdAt: string
   updatedAt: string
@@ -51,6 +51,10 @@ export default function SuppliersPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [categories, setCategories] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [totalSuppliers, setTotalSuppliers] = useState(0)
+  const suppliersPerPage = 25
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
@@ -63,19 +67,21 @@ export default function SuppliersPage() {
     whatsapp: "",
     website: "",
     description: "",
-    tags: [] as string[],
+    tags: null,
     contractValidTo: "",
   })
   // const { toast } = useToast() // Заменено на alert()
 
   // Загрузка поставщиков
-  const fetchSuppliers = async () => {
+  const fetchSuppliers = async (page: number = currentPage) => {
     try {
       setLoading(true)
       const params = new URLSearchParams()
       if (searchTerm) params.append('search', searchTerm)
       if (categoryFilter !== 'все') params.append('category', categoryFilter)
       if (contractFilter !== 'все') params.append('hasContract', contractFilter)
+      params.append('limit', suppliersPerPage.toString())
+      params.append('offset', ((page - 1) * suppliersPerPage).toString())
       
       const response = await fetch(`/api/suppliers?${params}`)
       const data = await response.json()
@@ -83,6 +89,9 @@ export default function SuppliersPage() {
       if (data.success) {
         setSuppliers(data.data)
         setCategories(data.categories || [])
+        setTotalSuppliers(data.pagination?.total || 0)
+        setTotalPages(Math.ceil((data.pagination?.total || 0) / suppliersPerPage))
+        setCurrentPage(page)
       } else {
         alert(`Ошибка: ${data.error || "Не удалось загрузить поставщиков"}`)
       }
@@ -96,8 +105,27 @@ export default function SuppliersPage() {
 
   // Загрузка при монтировании и изменении фильтров
   useEffect(() => {
-    fetchSuppliers()
+    fetchSuppliers(1) // Сбрасываем на первую страницу при изменении фильтров
   }, [searchTerm, categoryFilter, contractFilter])
+
+  // Функции пагинации
+  const handlePageChange = (page: number) => {
+    if (page >= 1 && page <= totalPages && page !== currentPage) {
+      fetchSuppliers(page)
+    }
+  }
+
+  const handlePrevPage = () => {
+    if (currentPage > 1) {
+      handlePageChange(currentPage - 1)
+    }
+  }
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      handlePageChange(currentPage + 1)
+    }
+  }
 
   // Функция для определения статуса договора
   const getContractStatus = (contractValidTo?: string) => {
@@ -144,7 +172,7 @@ export default function SuppliersPage() {
           whatsapp: "",
           website: "",
           description: "",
-          tags: [],
+          tags: null,
           contractValidTo: "",
         })
         fetchSuppliers()
@@ -313,10 +341,10 @@ export default function SuppliersPage() {
         <Label>Теги (через запятую)</Label>
         <Input 
           placeholder="канцелярские товары, офисная мебель" 
-          value={formData.tags.join(', ')}
+          value={formData.tags || ''}
           onChange={(e) => setFormData({ 
             ...formData, 
-            tags: e.target.value.split(',').map(tag => tag.trim()).filter(Boolean)
+            tags: e.target.value.trim() || null
           })}
         />
       </div>
@@ -346,7 +374,7 @@ export default function SuppliersPage() {
         <div>
           <h1 className="text-3xl font-bold">База поставщиков</h1>
           <p className="text-muted-foreground mt-1">
-            Всего поставщиков: {suppliers.length}
+            Всего поставщиков: {totalSuppliers} | Страница {currentPage} из {totalPages}
           </p>
         </div>
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
@@ -475,19 +503,12 @@ export default function SuppliersPage() {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
-                          {supplier.tags.length > 0 ? (
-                            supplier.tags.slice(0, 2).map((tag) => (
-                              <Badge key={tag} variant="secondary" className="text-xs">
-                                {tag}
-                              </Badge>
-                            ))
+                          {supplier.tags ? (
+                            <Badge variant="secondary" className="text-xs">
+                              {supplier.tags}
+                            </Badge>
                           ) : (
                             <span className="text-sm text-muted-foreground">Нет категорий</span>
-                          )}
-                          {supplier.tags.length > 2 && (
-                            <Badge variant="outline" className="text-xs">
-                              +{supplier.tags.length - 2}
-                            </Badge>
                           )}
                         </div>
                       </TableCell>
@@ -496,25 +517,50 @@ export default function SuppliersPage() {
                           {supplier.phone && (
                             <div className="flex items-center">
                               <Phone className="mr-1 h-3 w-3" />
-                              {supplier.phone}
+                              <a 
+                                href={`tel:${supplier.phone.replace(/\D/g, '')}`}
+                                className="text-blue-600 hover:underline"
+                              >
+                                {supplier.phone}
+                              </a>
                             </div>
                           )}
                           {supplier.email && (
                             <div className="flex items-center">
                               <Mail className="mr-1 h-3 w-3" />
-                              {supplier.email}
+                              <a 
+                                href={`mailto:${supplier.email}`}
+                                className="text-blue-600 hover:underline"
+                              >
+                                {supplier.email}
+                              </a>
                             </div>
                           )}
                           {supplier.whatsapp && (
                             <div className="flex items-center">
                               <MessageSquare className="mr-1 h-3 w-3" />
-                              WhatsApp
+                              <a 
+                                href={supplier.whatsapp.startsWith('http') ? supplier.whatsapp : `https://wa.me/${supplier.whatsapp.replace(/\D/g, '')}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-green-600 hover:underline"
+                              >
+                                {supplier.whatsapp.replace(/\D/g, '').replace(/^(\d{1})(\d{3})(\d{3})(\d{2})(\d{2})$/, '+$1 ($2) $3-$4-$5')}
+                              </a>
                             </div>
                           )}
                           {supplier.website && (
                             <div className="flex items-center">
                               <Globe className="mr-1 h-3 w-3" />
-                              Сайт
+                              <a 
+                                href={supplier.website.startsWith('http') ? supplier.website : `https://${supplier.website}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:underline truncate max-w-[150px]"
+                                title={supplier.website}
+                              >
+                                {supplier.website.replace(/^https?:\/\//, '').replace(/^www\./, '')}
+                              </a>
                             </div>
                           )}
                         </div>
@@ -572,6 +618,85 @@ export default function SuppliersPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Пагинация */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <p className="text-sm text-muted-foreground">
+              Показано {((currentPage - 1) * suppliersPerPage) + 1} - {Math.min(currentPage * suppliersPerPage, totalSuppliers)} из {totalSuppliers} поставщиков
+            </p>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePrevPage}
+              disabled={currentPage === 1}
+            >
+              <ChevronLeft className="mr-1 h-4 w-4" />
+              Предыдущая
+            </Button>
+            
+            <div className="flex items-center space-x-1">
+              {/* Показываем первую страницу */}
+              {currentPage > 3 && (
+                <>
+                  <Button
+                    variant={1 === currentPage ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => handlePageChange(1)}
+                  >
+                    1
+                  </Button>
+                  {currentPage > 4 && <span className="px-2">...</span>}
+                </>
+              )}
+              
+              {/* Показываем страницы вокруг текущей */}
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                const page = Math.max(1, Math.min(totalPages - 4, currentPage - 2)) + i
+                if (page > totalPages) return null
+                
+                return (
+                  <Button
+                    key={page}
+                    variant={page === currentPage ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => handlePageChange(page)}
+                  >
+                    {page}
+                  </Button>
+                )
+              })}
+              
+              {/* Показываем последнюю страницу */}
+              {currentPage < totalPages - 2 && (
+                <>
+                  {currentPage < totalPages - 3 && <span className="px-2">...</span>}
+                  <Button
+                    variant={totalPages === currentPage ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => handlePageChange(totalPages)}
+                  >
+                    {totalPages}
+                  </Button>
+                </>
+              )}
+            </div>
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleNextPage}
+              disabled={currentPage === totalPages}
+            >
+              Следующая
+              <ChevronRight className="ml-1 h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Диалог редактирования */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>

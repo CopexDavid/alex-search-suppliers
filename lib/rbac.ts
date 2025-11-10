@@ -1,6 +1,13 @@
 // Система ролевого доступа (RBAC)
-import { Role } from '@prisma/client'
 import { AuthUser } from './auth'
+
+// Определяем enum Role локально для совместимости
+export enum Role {
+  ADMIN = 'ADMIN',
+  PURCHASER = 'PURCHASER', 
+  MANAGER = 'MANAGER',
+  VIEWER = 'VIEWER'
+}
 
 // Определение прав доступа для каждой роли
 export const permissions = {

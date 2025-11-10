@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import prisma from '@/lib/prisma'
-import { Role } from '@prisma/client'
+import { Role } from '../../../../lib/rbac'
 
 /**
  * GET /api/settings/whapi-token

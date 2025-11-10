@@ -1,7 +1,7 @@
 // API для автоматической настройки webhook с правильным URL
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { Role } from '@prisma/client'
+import { Role } from '../../../../../lib/rbac'
 import whapiService from '@/lib/whapi'
 
 /**

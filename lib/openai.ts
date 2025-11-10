@@ -42,7 +42,10 @@ class OpenAIService {
 
       if (apiKey && apiKey !== 'sk-your-openai-api-key-here') {
         this.client = new OpenAI({
-          apiKey: apiKey
+          apiKey: apiKey,
+          defaultHeaders: {
+            'OpenAI-Beta': 'assistants=v2'
+          }
         })
         this.assistantId = assistantId || null
         console.log('✅ OpenAI client initialized')
@@ -201,3 +204,8 @@ class OpenAIService {
 const openaiService = new OpenAIService()
 
 export default openaiService
+
+// Экспорт простого OpenAI клиента для парсера
+export const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY || 'sk-your-openai-api-key-here'
+})

@@ -17,6 +17,121 @@ interface SearchParams {
 }
 
 /**
+ * Генерирует варианты поисковых запросов с учетом региона
+ */
+function buildSearchQuery(originalQuery: string, searchRegion: string = 'KAZAKHSTAN'): string[] {
+  const query = originalQuery.trim();
+  
+  if (searchRegion === 'KAZAKHSTAN') {
+    // Только Казахстан - исключаем российские сайты
+    return [
+      `${query} site:kz`,
+      `${query} Казахстан -site:ru`,
+      `${query} Kazakhstan -site:ru`,
+      `${query} Алматы Астана`,
+      query // базовый запрос как fallback
+    ];
+  } else {
+    // СНГ - включаем все страны
+    return [
+      query,
+      `${query} site:kz OR site:ru OR site:by OR site:ua`,
+      `${query} Казахстан Россия`,
+      `${query} Kazakhstan Russia`
+    ];
+  }
+}
+
+/**
+ * Улучшает название поставщика на основе URL и других данных
+ */
+function getSupplierName(result: any): string {
+  // Если есть companyName и он не совпадает с title, используем его
+  if (result.companyName && result.companyName !== result.title && result.companyName.length > 3) {
+    return result.companyName
+  }
+  
+  // Пытаемся извлечь название из URL
+  if (result.url) {
+    try {
+      const url = new URL(result.url)
+      let domain = url.hostname.replace('www.', '')
+      
+      // Убираем расширение и делаем первую букву заглавной
+      domain = domain.replace(/\.(kz|ru|com|org|net)$/, '')
+      
+      // Если домен содержит точки, берем последнюю часть
+      const parts = domain.split('.')
+      if (parts.length > 1) {
+        domain = parts[parts.length - 1]
+      }
+      
+      // Делаем первую букву заглавной
+      return domain.charAt(0).toUpperCase() + domain.slice(1)
+    } catch (e) {
+      // Если не удалось распарсить URL, используем title
+    }
+  }
+  
+  // Fallback к title, но очищаем от лишнего
+  let title = result.title || 'Неизвестный поставщик'
+  
+  // Убираем распространенные суффиксы
+  title = title.replace(/\s*-\s*(купить|цена|заказать|доставка|интернет-магазин|магазин).*$/i, '')
+  title = title.replace(/\s*\|\s*.*$/i, '') // Убираем все после |
+  title = title.replace(/\s*—\s*.*$/i, '') // Убираем все после —
+  
+  // Ограничиваем длину
+  if (title.length > 50) {
+    title = title.substring(0, 47) + '...'
+  }
+  
+  return title
+}
+
+/**
+ * Фильтрует результаты поиска по региону
+ */
+function shouldIncludeResult(result: any, searchRegion: string): boolean {
+  if (searchRegion !== 'KAZAKHSTAN') {
+    return true; // Для СНГ включаем все результаты
+  }
+  
+  // Для режима "Только Казахстан" применяем фильтры
+  const url = result.url?.toLowerCase() || '';
+  const phone = result.phone || '';
+  
+  // Исключаем российские домены
+  if (url.includes('.ru/') || url.endsWith('.ru')) {
+    console.log(`🚫 Исключен российский домен: ${result.url}`);
+    return false;
+  }
+  
+  // Исключаем российские номера телефонов (не начинающиеся с +7 77x, +7 70x, +7 71x, +7 72x)
+  if (phone) {
+    const cleanPhone = phone.replace(/\D/g, ''); // Убираем все нецифровые символы
+    
+    // Российские номера обычно начинаются с +7 9xx, +7 8xx, +7 4xx, +7 3xx, +7 5xx, +7 6xx
+    // Казахстанские номера: +7 7xx
+    if (cleanPhone.startsWith('7') && cleanPhone.length >= 4) {
+      const prefix = cleanPhone.substring(1, 3); // Берем 2 цифры после 7
+      if (!prefix.startsWith('7')) { // Если не 77x, 70x, 71x, 72x и т.д.
+        console.log(`🚫 Исключен российский номер: ${phone}`);
+        return false;
+      }
+    }
+    
+    // Исключаем 8-800 номера (российские бесплатные)
+    if (cleanPhone.startsWith('8800') || phone.includes('8 (800)')) {
+      console.log(`🚫 Исключен российский 8-800 номер: ${phone}`);
+      return false;
+    }
+  }
+  
+  return true;
+}
+
+/**
  * Парсит контакты с сайта (точно как в основном поиске)
  */
 async function parseContacts(url: string): Promise<any> {
@@ -26,16 +141,40 @@ async function parseContacts(url: string): Promise<any> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url }),
-      signal: AbortSignal.timeout(20000), // 5 сек timeout
+      signal: AbortSignal.timeout(30000), // 30 сек timeout как в основном поиске
     })
     
-    if (!response.ok) throw new Error('Parse failed')
+    if (!response.ok) {
+      console.error(`Parse API error for ${url}: ${response.status} ${response.statusText}`)
+      throw new Error(`Parse failed: ${response.status}`)
+    }
+    
+    const contentType = response.headers.get('content-type')
+    if (!contentType || !contentType.includes('application/json')) {
+      console.error(`Parse API returned non-JSON for ${url}: ${contentType}`)
+      const text = await response.text()
+      console.error(`Response text: ${text.substring(0, 200)}...`)
+      throw new Error('Parse API returned non-JSON response')
+    }
     
     const data = await response.json()
+    
+    if (!data.success) {
+      console.error(`Parse API error for ${url}:`, data.error)
+      return data.data || {}
+    }
+    
     return data.data || {}
   } catch (error) {
     console.error(`Parse error for ${url}:`, error)
-    return {}
+    return {
+      email: '',
+      phone: '',
+      whatsapp: '',
+      address: '',
+      companyName: '',
+      prices: []
+    }
   }
 }
 
@@ -68,35 +207,50 @@ export async function POST(
     })
     
     if (!position || position.requestId !== requestId) {
+      console.log(`❌ Позиция ${positionId} не найдена или не принадлежит заявке ${requestId}`)
+      console.log(`   Возможно, заявка была отредактирована во время поиска`)
       return NextResponse.json(
-        { error: 'Позиция не найдена' },
+        { error: 'Позиция не найдена. Возможно, заявка была отредактирована во время поиска.' },
         { status: 404 }
       )
     }
     
      console.log(`📦 Position: ${position.name}`)
      
-     const searchQuery = position.name
      const allResults = new Map<string, any>()
      
-    // ИСПОЛЬЗУЕМ ТУ ЖЕ ЛОГИКУ ЧТО И В ОСНОВНОМ ПОИСКЕ
-    console.log(`📌 Query: "${searchQuery}"`)
-    
-    // Обновляем статус позиции на SEARCHING
-    await prisma.position.update({
-      where: { id: positionId },
-      data: { 
-        searchStatus: 'SEARCHING',
-        updatedAt: new Date()
-      }
-    })
+    // Обновляем статус позиции на SEARCHING (с проверкой существования)
+    try {
+      await prisma.position.update({
+        where: { id: positionId },
+        data: { 
+          searchStatus: 'SEARCHING',
+          updatedAt: new Date()
+        }
+      })
+    } catch (updateError) {
+      console.log(`⚠️ Не удалось обновить статус позиции ${positionId}, возможно она была удалена`)
+    }
     
     console.log(`🔄 Updated position status to SEARCHING`)
     
-    try {
+    // Генерируем варианты запросов с учетом региона поиска
+    const searchRegion = position.request.searchRegion || 'KAZAKHSTAN';
+    const searchQueries = buildSearchQuery(position.name, searchRegion);
+    console.log(`🎯 Generated ${searchQueries.length} search variations for region ${searchRegion}:`);
+    searchQueries.forEach((q, i) => console.log(`   ${i + 1}. "${q}"`));
+    console.log('');
+    
+    // ПАРСИМ HTML НАПРЯМУЮ из веб-интерфейса CSE (как в основном поиске)
+    const maxQueries = Math.min(10, searchQueries.length); // Больше запросов!
+    for (let i = 0; i < maxQueries && allResults.size < 50; i++) { // Увеличим лимит до 50
+      const query = searchQueries[i];
+      console.log(`\n📌 Query ${i + 1}/${maxQueries}: "${query}"`);
+      
+      try {
        // Запускаем НАСТОЯЩИЙ браузер!
-       const searchUrl = `https://cse.google.com/cse?cx=${SEARCH_ENGINE_ID}&q=${encodeURIComponent(searchQuery)}`
-       console.log(`🌐 Opening browser: ${searchUrl}`)
+       const searchUrl = `https://cse.google.com/cse?cx=${SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}`
+       console.log(`  🌐 Opening browser: ${searchUrl}`)
        
        const browser = await puppeteer.launch({
          headless: true,
@@ -208,6 +362,11 @@ export async function POST(
            continue
          }
          
+         // Применяем региональную фильтрацию
+         if (!shouldIncludeResult(result, searchRegion)) {
+           continue
+         }
+         
          console.log(`✅ Found: ${result.url}`)
          console.log(`    📄 ${result.title}`)
          if (result.price) {
@@ -228,16 +387,25 @@ export async function POST(
          if (allResults.size >= 30) break
        }
        
-       console.log(`📊 Added ${found} new results (total: ${allResults.size})`)
+       console.log(`  📊 Added ${found} new results (total: ${allResults.size})`)
        
      } catch (error) {
-       console.error(`❌ Browser error:`, error)
+       console.error(`  ❌ Error:`, error)
      }
      
-     console.log(`\n📊 GOOGLE CSE PHASE COMPLETE: ${allResults.size} unique websites found`)
+     // Если уже достаточно - останавливаемся
+     if (allResults.size >= 50) {
+       console.log(`\n✅ SUCCESS: Reached 50 unique results!`);
+       break;
+     }
+    }
+     
+     console.log('\n' + '='.repeat(60));
+     console.log(`📊 GOOGLE CSE PHASE COMPLETE: ${allResults.size} unique websites found`);
+     console.log('='.repeat(60));
     
     // ДОПОЛНИТЕЛЬНЫЙ ПОИСК ЧЕРЕЗ SERPAPI если мало результатов
-    const MIN_RESULTS_FOR_SERPAPI = 5; // Порог для запуска SerpAPI
+    const MIN_RESULTS_FOR_SERPAPI = 10; // Порог для запуска SerpAPI
     
     if (allResults.size < MIN_RESULTS_FOR_SERPAPI) {
       console.log(`\n⚠️  Found only ${allResults.size} results, starting SerpAPI search for position...`);
@@ -323,7 +491,7 @@ export async function POST(
     //   }
 
       // ДОПОЛНИТЕЛЬНЫЙ ПОИСК ПО YANDEX если мало результатов (без маркетплейсов)
-      const MIN_RESULTS_FOR_YANDEX = 3; // Минимальное количество результатов для Yandex
+      const MIN_RESULTS_FOR_YANDEX = 5; // Минимальное количество результатов для Yandex
       if (allResults.size < MIN_RESULTS_FOR_YANDEX) {
         console.log(`\n⚠️  Found only ${allResults.size} results, starting Yandex search...`);
         
@@ -361,11 +529,9 @@ export async function POST(
         } catch (error) {
           console.error('❌ Error in Yandex search:', error);
         }
+      } else {
+        console.log(`✅ Found ${allResults.size} results, skipping Yandex search`);
       }
-      
-    } else {
-      console.log(`✅ Found ${allResults.size} results, skipping additional searches`);
-    }
     
     if (allResults.size === 0) {
       return NextResponse.json({
@@ -380,26 +546,47 @@ export async function POST(
     }
     
      // Парсим контакты ПАРАЛЛЕЛЬНО для всех результатов (как в основном поиске)
-     console.log('\n📞 CONTACT PARSING PHASE')
-     console.log(`Starting parallel parsing of ${allResults.size} websites...`)
+     console.log('\n' + '='.repeat(60));
+     console.log('📞 CONTACT PARSING PHASE');
+     console.log('='.repeat(60));
+     console.log(`Starting parallel parsing of ${allResults.size} websites...`);
+     console.log('');
      
      const resultsArray = Array.from(allResults.values())
      
      const parsePromises = resultsArray.map(async (result) => {
-       const contacts = await parseContacts(result.url)
-       return {
-         ...result,
-         phone: contacts.phone || '',
-         email: contacts.email || '',
-         whatsapp: contacts.whatsapp || '',
-         address: contacts.address || '',
-         companyName: contacts.companyName || result.title,
-         prices: contacts.prices || [],
-         foundAt: new Date().toLocaleTimeString('ru-RU', { 
-           hour: '2-digit', 
-           minute: '2-digit', 
-           second: '2-digit' 
-         })
+       try {
+         const contacts = await parseContacts(result.url)
+         return {
+           ...result,
+           phone: contacts.phone || '',
+           email: contacts.email || '',
+           whatsapp: contacts.whatsapp || '',
+           address: contacts.address || '',
+           companyName: contacts.companyName || result.title,
+           prices: contacts.prices || [],
+           foundAt: new Date().toLocaleTimeString('ru-RU', { 
+             hour: '2-digit', 
+             minute: '2-digit', 
+             second: '2-digit' 
+           })
+         }
+       } catch (error) {
+         console.error(`❌ Error parsing contacts for ${result.url}:`, error)
+         return {
+           ...result,
+           phone: '',
+           email: '',
+           whatsapp: '',
+           address: '',
+           companyName: result.title,
+           prices: [],
+           foundAt: new Date().toLocaleTimeString('ru-RU', { 
+             hour: '2-digit', 
+             minute: '2-digit', 
+             second: '2-digit' 
+           })
+         }
        }
      })
      
@@ -409,12 +596,15 @@ export async function POST(
      const phoneCount = searchResults.filter(r => r.phone).length
      const emailCount = searchResults.filter(r => r.email).length
      
-     console.log('\n✅ CONTACT PARSING COMPLETE!')
-     console.log(`📊 Results:`)
-     console.log(`   Total companies: ${searchResults.length}`)
-     console.log(`   📱 With phone: ${phoneCount} (${Math.round(phoneCount/searchResults.length*100)}%)`)
-     console.log(`   💬 With WhatsApp: ${whatsappCount} (${Math.round(whatsappCount/searchResults.length*100)}%)`)
-     console.log(`   📧 With email: ${emailCount} (${Math.round(emailCount/searchResults.length*100)}%)`)
+     console.log('\n' + '='.repeat(60));
+     console.log('✅ SEARCH COMPLETE!');
+     console.log('='.repeat(60));
+     console.log(`📊 Results:`);
+     console.log(`   Total companies: ${searchResults.length}`);
+     console.log(`   📱 With phone: ${phoneCount} (${Math.round(phoneCount/searchResults.length*100)}%)`);
+     console.log(`   💬 With WhatsApp: ${whatsappCount} (${Math.round(whatsappCount/searchResults.length*100)}%)`);
+     console.log(`   📧 With email: ${emailCount} (${Math.round(emailCount/searchResults.length*100)}%)`);
+     console.log('='.repeat(60) + '\n');
     
     // Сохраняем поставщиков в БД
     const savedSuppliers = []
@@ -433,12 +623,15 @@ export async function POST(
           }
         })
         
+        // Улучшаем название поставщика
+        const supplierName = getSupplierName(result)
+        
         if (supplier) {
           // Обновляем существующего
           supplier = await prisma.supplier.update({
             where: { id: supplier.id },
             data: {
-              name: result.companyName || result.title,
+              name: supplierName,
               description: result.snippet,
               phone: result.phone || undefined,
               email: result.email || undefined,
@@ -450,7 +643,7 @@ export async function POST(
           // Создаем нового
           supplier = await prisma.supplier.create({
             data: {
-              name: result.companyName || result.title,
+              name: supplierName,
               website: result.url,
               description: result.snippet,
               phone: result.phone || undefined,
@@ -458,7 +651,7 @@ export async function POST(
               whatsapp: result.whatsapp || undefined,
               address: result.address || undefined,
               rating: 0,
-              tags: [],
+              tags: null, // Для SQLite используем null вместо пустого массива
             }
           })
         }
@@ -493,14 +686,18 @@ export async function POST(
     
     console.log(`\n✅ Saved ${savedSuppliers.length} suppliers to database`)
     
-    // Обновляем статус позиции
-    await prisma.position.update({
-      where: { id: positionId },
-      data: { 
-        searchStatus: 'SUPPLIERS_FOUND',
-        updatedAt: new Date()
-      }
-    })
+    // Обновляем статус позиции (с проверкой существования)
+    try {
+      await prisma.position.update({
+        where: { id: positionId },
+        data: { 
+          searchStatus: 'SUPPLIERS_FOUND',
+          updatedAt: new Date()
+        }
+      })
+    } catch (updateError) {
+      console.log(`⚠️ Не удалось обновить статус позиции ${positionId}, возможно она была удалена`)
+    }
     
     console.log(`✅ Updated position status to SUPPLIERS_FOUND`)
     

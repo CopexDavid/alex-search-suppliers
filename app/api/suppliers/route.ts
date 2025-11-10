@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     const category = searchParams.get('category')
     const hasContract = searchParams.get('hasContract')
     const isActive = searchParams.get('isActive')
-    const limit = parseInt(searchParams.get('limit') || '50')
+    const limit = parseInt(searchParams.get('limit') || '25')
     const offset = parseInt(searchParams.get('offset') || '0')
 
     // Строим запрос с фильтрами
@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
       whatsapp,
       website,
       description,
-      tags = [],
+      tags = null,
       contractValidTo
     } = body
 
@@ -169,7 +169,7 @@ export async function POST(request: NextRequest) {
         whatsapp: whatsapp || undefined,
         website: website || undefined,
         description: description || undefined,
-        tags: Array.isArray(tags) ? tags : [],
+        tags: tags || null,
         contractValidTo: contractValidTo ? new Date(contractValidTo) : undefined,
         rating: 0,
         isActive: true,

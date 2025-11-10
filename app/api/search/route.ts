@@ -76,16 +76,40 @@ async function parseContacts(url: string): Promise<any> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url }),
-      signal: AbortSignal.timeout(30000), // 5 сек timeout
+      signal: AbortSignal.timeout(30000), // 30 сек timeout
     });
     
-    if (!response.ok) throw new Error('Parse failed');
+    if (!response.ok) {
+      console.error(`Parse API error for ${url}: ${response.status} ${response.statusText}`)
+      throw new Error(`Parse failed: ${response.status}`)
+    }
+    
+    const contentType = response.headers.get('content-type')
+    if (!contentType || !contentType.includes('application/json')) {
+      console.error(`Parse API returned non-JSON for ${url}: ${contentType}`)
+      const text = await response.text()
+      console.error(`Response text: ${text.substring(0, 200)}...`)
+      throw new Error('Parse API returned non-JSON response')
+    }
     
     const data = await response.json();
+    
+    if (!data.success) {
+      console.error(`Parse API error for ${url}:`, data.error)
+      return data.data || {}
+    }
+    
     return data.data || {};
   } catch (error) {
     console.error(`Parse error for ${url}:`, error);
-    return {};
+    return {
+      email: '',
+      phone: '',
+      whatsapp: '',
+      address: '',
+      companyName: '',
+      prices: []
+    };
   }
 }
 
@@ -398,11 +422,9 @@ export async function POST(request: Request) {
         } catch (error) {
           console.error('❌ Error in Yandex search:', error);
         }
+      } else {
+        console.log(`✅ Found ${allResults.size} results, skipping Yandex search`);
       }
-      
-    } else {
-      console.log(`✅ Found ${allResults.size} results, skipping additional searches`);
-    }
     
     if (allResults.size === 0) {
       return NextResponse.json({

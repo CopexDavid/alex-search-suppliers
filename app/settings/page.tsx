@@ -74,6 +74,10 @@ export default function SettingsPage() {
   const [hasOpenaiSettings, setHasOpenaiSettings] = useState(false)
   const [maskedOpenaiKey, setMaskedOpenaiKey] = useState<string | null>(null)
 
+  // Системные настройки
+  const [suppliersToContact, setSuppliersToContact] = useState(3)
+  const [systemSettingsSaving, setSystemSettingsSaving] = useState(false)
+
   const templates = [
     {
       id: 1,
@@ -498,13 +502,17 @@ export default function SettingsPage() {
     try {
       const response = await fetch('/api/whatsapp/webhook/auto-setup', {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
         credentials: 'include'
       })
 
       const data = await response.json()
 
       if (response.ok) {
-        alert(`✅ Webhook автоматически настроен!\n\nURL: ${data.webhookUrl}\nСреда: ${data.environment}`)
+        alert(`✅ Webhook автоматически настроен!\nURL: ${data.webhookUrl}`)
+        setWebhookUrl(data.webhookUrl)
         await loadWebhookSettings()
       } else {
         alert(`❌ Ошибка: ${data.error}`)
@@ -607,12 +615,59 @@ export default function SettingsPage() {
     }
   }
 
+  // Загрузка системных настроек
+  const loadSystemSettings = async () => {
+    try {
+      const response = await fetch('/api/settings/system', {
+        credentials: 'include'
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setSuppliersToContact(data.suppliers_to_contact || 3)
+      }
+    } catch (error) {
+      console.error('Ошибка загрузки системных настроек:', error)
+    }
+  }
+
+  // Сохранение системных настроек
+  const saveSystemSettings = async () => {
+    setSystemSettingsSaving(true)
+    try {
+      const response = await fetch('/api/settings/system', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          suppliers_to_contact: suppliersToContact
+        })
+      })
+
+      const data = await response.json()
+      
+      if (response.ok) {
+        alert('✅ Системные настройки сохранены!')
+      } else {
+        alert(`❌ ${data.error}`)
+      }
+    } catch (error) {
+      console.error('Ошибка сохранения системных настроек:', error)
+      alert('❌ Ошибка при сохранении системных настроек')
+    } finally {
+      setSystemSettingsSaving(false)
+    }
+  }
+
   // Загрузка пользователей при монтировании
   useEffect(() => {
     loadUsers()
     loadWhapiToken()
     loadWebhookSettings()
     loadOpenaiSettings()
+    loadSystemSettings()
   }, [])
 
   // Poll WhatsApp status on mount
@@ -1188,6 +1243,24 @@ export default function SettingsPage() {
                         className="flex-1"
                       />
                       <Button 
+                        onClick={autoSetupWebhook}
+                        disabled={webhookSetting}
+                        className="bg-green-600 hover:bg-green-700"
+                        title="Автоматически настроить webhook с ngrok URL"
+                      >
+                        {webhookSetting ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Авто...
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="mr-2 h-4 w-4" />
+                            Авто
+                          </>
+                        )}
+                      </Button>
+                      <Button 
                         onClick={setupWebhook}
                         disabled={webhookSetting || !webhookUrl.trim()}
                         className="bg-purple-600 hover:bg-purple-700"
@@ -1207,7 +1280,7 @@ export default function SettingsPage() {
                     </div>
                     
                     <div className="text-xs text-purple-600">
-                      💡 Для локального тестирования используйте ngrok или аналогичный сервис для создания публичного URL
+                      💡 Используйте кнопку "Авто" для автоматической настройки с ngrok URL, или введите свой URL и нажмите "Настроить"
                     </div>
                   </div>
                 )}
@@ -1475,6 +1548,24 @@ export default function SettingsPage() {
                 </div>
 
                 <div className="space-y-2">
+                  <Label htmlFor="suppliers-count">
+                    <Brain className="inline h-4 w-4 mr-1" />
+                    Количество поставщиков для ИИ выбора (1-10)
+                  </Label>
+                  <Input
+                    id="suppliers-count"
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={suppliersToContact}
+                    onChange={(e) => setSuppliersToContact(Math.max(1, Math.min(10, parseInt(e.target.value) || 3)))}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    ИИ выберет лучших поставщиков из найденных для отправки запросов КП
+                  </p>
+                </div>
+
+                <div className="space-y-2">
                   <Label>Часовой пояс</Label>
                   <Select defaultValue="almaty">
                     <SelectTrigger>
@@ -1520,7 +1611,22 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              <Button>Сохранить общие настройки</Button>
+              <Button 
+                onClick={saveSystemSettings}
+                disabled={systemSettingsSaving}
+              >
+                {systemSettingsSaving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Сохранение...
+                  </>
+                ) : (
+                  <>
+                    <Save className="mr-2 h-4 w-4" />
+                    Сохранить общие настройки
+                  </>
+                )}
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>

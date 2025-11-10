@@ -150,7 +150,7 @@ export async function PUT(
         ...(whatsapp !== undefined && { whatsapp: whatsapp || null }),
         ...(website !== undefined && { website: website || null }),
         ...(description !== undefined && { description: description || null }),
-        ...(tags !== undefined && { tags: Array.isArray(tags) ? tags : [] }),
+        ...(tags !== undefined && { tags: tags || null }),
         ...(contractValidTo !== undefined && { 
           contractValidTo: contractValidTo ? new Date(contractValidTo) : null 
         }),

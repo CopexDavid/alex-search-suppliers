@@ -1,18 +1,25 @@
-// API для работы с отдельной заявкой
+// API для получения конкретной заявки
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
 import prisma from '@/lib/prisma'
-import { RequestStatus } from '@prisma/client'
 
-// GET /api/requests/[id] - Получить детали заявки
+interface RequestParams {
+  params: {
+    id: string
+  }
+}
+
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: RequestParams
 ) {
   try {
     const user = await requireAuth()
     const { id } = params
 
+    console.log(`🔍 Загружаем заявку: ${id}`)
+
+    // Получаем заявку с полной информацией
     const requestData = await prisma.request.findUnique({
       where: { id },
       include: {
@@ -21,48 +28,43 @@ export async function GET(
             id: true,
             name: true,
             email: true,
-            role: true,
           },
         },
-        positions: true,
+        positions: {
+          include: {
+            positionChats: {
+              include: {
+                chat: {
+                  include: {
+                    messages: {
+                      orderBy: { timestamp: 'desc' },
+                      take: 10
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        commercialOffers: {
+          where: {
+            confidence: { gte: 70 },
+            needsManualReview: false
+          },
+          orderBy: { totalPrice: 'asc' } // Сортируем по цене
+        },
         suppliers: {
           include: {
-            supplier: {
-              include: {
-                contacts: true,
-              },
-            },
+            supplier: true
+          }
+        },
+        _count: {
+          select: {
+            quotes: true,
+            suppliers: true,
           },
         },
-        quotes: {
-          include: {
-            supplier: {
-              include: {
-                contacts: true,
-              },
-            },
-            items: true,
-          },
-        },
-        approvals: {
-          include: {
-            approver: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-                role: true,
-              },
-            },
-          },
-        },
-        tasks: {
-          orderBy: {
-            createdAt: 'desc',
-          },
-          take: 10,
-        },
-      },
+      }
     })
 
     if (!requestData) {
@@ -72,22 +74,18 @@ export async function GET(
       )
     }
 
+    console.log(`✅ Заявка загружена: ${requestData.requestNumber}`)
+    console.log(`📊 КП: ${requestData.commercialOffers.length}, Позиций: ${requestData.positions.length}`)
+
     return NextResponse.json({
       success: true,
-      data: requestData,
+      data: requestData
     })
+
   } catch (error: any) {
-    console.error('Get request error:', error)
-
-    if (error.message === 'Unauthorized') {
-      return NextResponse.json(
-        { error: 'Требуется авторизация' },
-        { status: 401 }
-      )
-    }
-
+    console.error('❌ Ошибка загрузки заявки:', error)
     return NextResponse.json(
-      { error: 'Ошибка при получении заявки' },
+      { error: 'Внутренняя ошибка сервера' },
       { status: 500 }
     )
   }
@@ -96,44 +94,85 @@ export async function GET(
 // PUT /api/requests/[id] - Обновить заявку
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: RequestParams
 ) {
   try {
     const user = await requireAuth()
     const { id } = params
     const body = await request.json()
 
+    const {
+      requestNumber,
+      description,
+      deadline,
+      budget,
+      currency,
+      priority,
+      status,
+      searchRegion,
+      positions,
+    } = body
+
+    console.log(`🔄 Обновляем заявку: ${id}`)
+
     // Проверяем существование заявки
-    const existing = await prisma.request.findUnique({
+    const existingRequest = await prisma.request.findUnique({
       where: { id },
+      include: { positions: true }
     })
 
-    if (!existing) {
+    if (!existingRequest) {
       return NextResponse.json(
         { error: 'Заявка не найдена' },
         { status: 404 }
       )
     }
 
-    const {
-      description,
-      deadline,
-      budget,
-      status,
-      priority,
-    } = body
+    // Обновляем заявку в транзакции
+    const updatedRequest = await prisma.$transaction(async (tx) => {
+      // 1. Обновляем основные данные заявки
+      const updated = await tx.request.update({
+        where: { id },
+        data: {
+          requestNumber,
+          description,
+          deadline: new Date(deadline),
+          budget,
+          currency,
+          priority,
+          status,
+          searchRegion,
+          updatedAt: new Date()
+        }
+      })
 
-    // Обновляем заявку
-    const updated = await prisma.request.update({
+      // 2. Удаляем старые позиции
+      await tx.position.deleteMany({
+        where: { requestId: id }
+      })
+
+      // 3. Создаем новые позиции
+      if (positions && positions.length > 0) {
+        await tx.position.createMany({
+          data: positions.map((pos: any) => ({
+            requestId: id,
+            sku: pos.sku || '',
+            name: pos.name,
+            description: pos.description,
+            quantity: pos.quantity,
+            unit: pos.unit,
+          }))
+        })
+      }
+
+      return updated
+    })
+
+    // Получаем обновленную заявку с позициями
+    const finalRequest = await prisma.request.findUnique({
       where: { id },
-      data: {
-        ...(description !== undefined && { description }),
-        ...(deadline !== undefined && { deadline: new Date(deadline) }),
-        ...(budget !== undefined && { budget }),
-        ...(status !== undefined && { status }),
-        ...(priority !== undefined && { priority }),
-      },
       include: {
+        positions: true,
         creator: {
           select: {
             id: true,
@@ -141,78 +180,27 @@ export async function PUT(
             email: true,
           },
         },
-        positions: true,
-      },
+        commercialOffers: true,
+        suppliers: {
+          include: {
+            supplier: true
+          }
+        },
+      }
     })
+
+    console.log(`✅ Заявка обновлена: ${finalRequest?.requestNumber}`)
 
     return NextResponse.json({
       success: true,
-      data: updated,
+      data: finalRequest
     })
+
   } catch (error: any) {
-    console.error('Update request error:', error)
-
-    if (error.message === 'Unauthorized') {
-      return NextResponse.json(
-        { error: 'Требуется авторизация' },
-        { status: 401 }
-      )
-    }
-
+    console.error('❌ Ошибка обновления заявки:', error)
     return NextResponse.json(
-      { error: 'Ошибка при обновлении заявки' },
+      { error: 'Внутренняя ошибка сервера' },
       { status: 500 }
     )
   }
 }
-
-// DELETE /api/requests/[id] - Удалить заявку (архивировать)
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const user = await requireAuth()
-    const { id } = params
-
-    // Проверяем существование заявки
-    const existing = await prisma.request.findUnique({
-      where: { id },
-    })
-
-    if (!existing) {
-      return NextResponse.json(
-        { error: 'Заявка не найдена' },
-        { status: 404 }
-      )
-    }
-
-    // Архивируем вместо удаления
-    await prisma.request.update({
-      where: { id },
-      data: {
-        status: RequestStatus.ARCHIVED,
-      },
-    })
-
-    return NextResponse.json({
-      success: true,
-      message: 'Заявка архивирована',
-    })
-  } catch (error: any) {
-    console.error('Delete request error:', error)
-
-    if (error.message === 'Unauthorized') {
-      return NextResponse.json(
-        { error: 'Требуется авторизация' },
-        { status: 401 }
-      )
-    }
-
-    return NextResponse.json(
-      { error: 'Ошибка при удалении заявки' },
-      { status: 500 }
-    )
-  }
-}
-

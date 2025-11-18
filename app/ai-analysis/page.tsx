@@ -18,6 +18,7 @@ import {
   ArrowRight,
   Eye,
   TrendingUp,
+  RotateCcw,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -50,6 +51,7 @@ interface Request {
 export default function AIAnalysisPage() {
   const [requests, setRequests] = useState<Request[]>([])
   const [loading, setLoading] = useState(true)
+  const [resettingCounters, setResettingCounters] = useState<string | null>(null)
 
   // Загрузка заявок готовых к анализу
   const loadRequests = async () => {
@@ -119,6 +121,37 @@ export default function AIAnalysisPage() {
       minPrice,
       maxPrice,
       priceRange: maxPrice - minPrice
+    }
+  }
+
+  // Сброс счетчиков КП для заявки
+  const resetQuotesCounters = async (requestId: string) => {
+    if (!confirm('Вы уверены, что хотите пересчитать счетчики КП для всех позиций этой заявки?')) {
+      return
+    }
+
+    try {
+      setResettingCounters(requestId)
+      
+      const response = await fetch(`/api/requests/${requestId}/reset-quotes-counters`, {
+        method: 'POST',
+        credentials: 'include'
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        alert(`✅ ${data.message}`)
+        // Перезагружаем список заявок
+        await loadRequests()
+      } else {
+        const errorData = await response.json()
+        alert(`❌ Ошибка: ${errorData.error || 'Не удалось сбросить счетчики'}`)
+      }
+    } catch (error) {
+      console.error('Error resetting quotes counters:', error)
+      alert('❌ Ошибка при сбросе счетчиков')
+    } finally {
+      setResettingCounters(null)
     }
   }
 
@@ -281,14 +314,35 @@ export default function AIAnalysisPage() {
                   </div>
                   
                   <div className="ml-6 text-right">
+                    <div className="flex flex-col gap-2">
                     <Link href={`/ai-analysis/${request.id}`}>
-                      <Button className="mb-2">
+                        <Button className="w-full">
                         <Brain className="mr-2 h-4 w-4" />
                         Анализ ИИ
                         <ArrowRight className="ml-2 h-4 w-4" />
                       </Button>
                     </Link>
-                    <p className="text-xs text-muted-foreground">
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => resetQuotesCounters(request.id)}
+                        disabled={resettingCounters === request.id}
+                        className="w-full"
+                      >
+                        {resettingCounters === request.id ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Пересчет...
+                          </>
+                        ) : (
+                          <>
+                            <RotateCcw className="mr-2 h-4 w-4" />
+                            Сбросить счетчик КП
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-2">
                       Инициатор: {request.creator?.name}
                     </p>
                   </div>

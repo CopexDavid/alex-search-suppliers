@@ -4,7 +4,7 @@ import type { NextRequest } from 'next/server'
 import { verifyTokenEdge } from '@/lib/auth-edge'
 
 // Публичные маршруты, не требующие авторизации
-const publicRoutes = ['/login', '/api/auth/login']
+const publicRoutes = ['/login', '/reset-password', '/api/auth/login', '/api/auth/reset-password']
 
 // Маршруты только для неавторизованных пользователей
 const authRoutes = ['/login']

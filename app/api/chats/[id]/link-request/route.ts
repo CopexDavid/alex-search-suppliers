@@ -41,7 +41,8 @@ export async function POST(
       return NextResponse.json({ error: 'Заявка не найдена' }, { status: 404 })
     }
 
-    // Привязываем чат к заявке
+    // Привязываем чат к заявке (БЕЗ автоматического создания связей с позициями)
+    // Связи с позициями должны создаваться отдельно через link-position для выбранных позиций
     const updatedChat = await prisma.chat.update({
       where: { id: chatId },
       data: {
@@ -49,44 +50,14 @@ export async function POST(
       }
     })
 
-    // Создаем связи между позициями заявки и чатом
-    for (const position of requestExists.positions) {
-      await prisma.positionChat.upsert({
-        where: {
-          positionId_chatId: {
-            positionId: position.id,
-            chatId: chatId
-          }
-        },
-        create: {
-          positionId: position.id,
-          chatId: chatId,
-          status: 'REQUESTED',
-          requestSentAt: new Date()
-        },
-        update: {
-          status: 'REQUESTED',
-          requestSentAt: new Date()
-        }
-      })
-
-      // Увеличиваем счетчик запрошенных КП
-      await prisma.position.update({
-        where: { id: position.id },
-        data: {
-          quotesRequested: { increment: 1 },
-          searchStatus: 'QUOTES_REQUESTED'
-        }
-      })
-    }
-
     console.log(`🔗 Чат ${chatId} привязан к заявке ${requestExists.requestNumber}`)
+    console.log(`ℹ️  Для привязки к конкретным позициям используйте API link-position`)
 
     return NextResponse.json({
       success: true,
       chat: updatedChat,
       request: requestExists,
-      positionsLinked: requestExists.positions.length
+      message: 'Чат привязан к заявке. Используйте link-position для привязки к конкретным позициям.'
     })
 
   } catch (error: any) {

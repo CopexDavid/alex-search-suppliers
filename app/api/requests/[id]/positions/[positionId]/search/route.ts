@@ -6,6 +6,8 @@ import puppeteer from 'puppeteer'
 // import { searchMarketplaces, MarketplaceResult } from '@/services/marketplaceParsers' // ОТКЛЮЧЕНО
 import { YandexSearchService, convertYandexResults } from '@/services/yandexSearch'
 import { SerpApiService, convertSerpApiResults } from '@/services/serpApiSearch'
+import { filterByRegion, SearchRegion } from '@/utils/regionFilter'
+import { filterByCategories, enhanceQueryWithCategories } from '@/utils/categoryMapping'
 
 const SEARCH_ENGINE_ID = process.env.GOOGLE_SEARCH_ENGINE_ID || 'd7065ea5c59764932'
 
@@ -234,9 +236,20 @@ export async function POST(
     
     console.log(`🔄 Updated position status to SEARCHING`)
     
-    // Генерируем варианты запросов с учетом региона поиска
+    // Генерируем варианты запросов с учетом региона поиска и категорий
     const searchRegion = position.request.searchRegion || 'KAZAKHSTAN';
-    const searchQueries = buildSearchQuery(position.name, searchRegion);
+    const enableCategorization = position.request.enableCategorization || false;
+    const categories = position.request.categories ? JSON.parse(position.request.categories) : [];
+    
+    let searchQueries = buildSearchQuery(position.name, searchRegion);
+    
+    // Если включена категоризация, улучшаем запросы
+    if (enableCategorization && categories.length > 0) {
+      const enhancedQueries = enhanceQueryWithCategories(position.name, categories);
+      searchQueries = [...searchQueries, ...enhancedQueries];
+      console.log(`🏷️ Categorization enabled: ${categories.join(', ')}`);
+    }
+    
     console.log(`🎯 Generated ${searchQueries.length} search variations for region ${searchRegion}:`);
     searchQueries.forEach((q, i) => console.log(`   ${i + 1}. "${q}"`));
     console.log('');
@@ -552,7 +565,20 @@ export async function POST(
      console.log(`Starting parallel parsing of ${allResults.size} websites...`);
      console.log('');
      
-     const resultsArray = Array.from(allResults.values())
+     // Применяем фильтрацию по регионам
+     const allResultsArray = Array.from(allResults.values())
+     let filteredResults = filterByRegion(allResultsArray, searchRegion as SearchRegion)
+     
+     console.log(`🌍 Region filter applied: ${allResultsArray.length} → ${filteredResults.length} results (region: ${searchRegion})`)
+     
+     // Применяем фильтрацию по категориям если включена
+     if (enableCategorization && categories.length > 0) {
+       const beforeCategoryFilter = filteredResults.length
+       filteredResults = filterByCategories(filteredResults, categories)
+       console.log(`🏷️ Category filter applied: ${beforeCategoryFilter} → ${filteredResults.length} results (categories: ${categories.join(', ')})`)
+     }
+     
+     const resultsArray = filteredResults
      
      const parsePromises = resultsArray.map(async (result) => {
        try {

@@ -74,7 +74,20 @@ interface ChatMessage {
   messageType: 'TEXT' | 'IMAGE' | 'DOCUMENT' | 'AUDIO' | 'VIDEO'
   status: 'PENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED'
   attachments?: any
-  metadata?: any
+  metadata?: {
+    whapi_data?: {
+      document?: {
+        id: string
+        mime_type: string
+        file_size: number
+        file_name: string
+        filename: string
+        caption?: string
+        preview?: string
+      }
+    }
+    [key: string]: any
+  }
   timestamp: string
   createdAt: string
 }
@@ -84,6 +97,13 @@ interface Request {
   requestNumber: string
   description?: string
   status: string
+  positions?: {
+    id: string
+    name: string
+    description?: string
+    quantity: number
+    unit: string
+  }[]
 }
 
 export default function ChatsPage() {
@@ -101,6 +121,8 @@ export default function ChatsPage() {
   const [requests, setRequests] = useState<Request[]>([])
   const [selectedRequestId, setSelectedRequestId] = useState("")
   const [linkingRequest, setLinkingRequest] = useState(false)
+  const [currentChatPositions, setCurrentChatPositions] = useState<string[]>([]) // Текущие привязки к позициям
+  const [unlinkingPosition, setUnlinkingPosition] = useState<string | null>(null)
 
   // Загрузка чатов
   const loadChats = async () => {
@@ -163,12 +185,41 @@ export default function ChatsPage() {
     }
   }
 
+  // Загрузка текущих привязок чата к позициям
+  const loadChatPositions = async (chatId: string) => {
+    try {
+      const response = await fetch(`/api/chats/${chatId}`, {
+        credentials: 'include'
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        const chat = data.data || data.chat
+        if (chat?.positionChats) {
+          const positionIds = chat.positionChats.map((pc: any) => pc.positionId)
+          setCurrentChatPositions(positionIds)
+          // Если чат привязан к заявке, устанавливаем selectedRequestId
+          if (chat.requestId) {
+            setSelectedRequestId(chat.requestId)
+          }
+        } else {
+          setCurrentChatPositions([])
+        }
+      }
+    } catch (error) {
+      console.error('Error loading chat positions:', error)
+      setCurrentChatPositions([])
+    }
+  }
+
   // Открыть диалог привязки к заявке
   const openLinkDialog = async (chatId: string) => {
     setLinkingChatId(chatId)
     setSelectedRequestId("")
+    setCurrentChatPositions([])
     setShowLinkDialog(true)
     await loadRequests()
+    await loadChatPositions(chatId)
   }
 
   // Привязать чат к заявке
@@ -177,6 +228,12 @@ export default function ChatsPage() {
     
     try {
       setLinkingRequest(true)
+      
+      // Получаем выбранные позиции
+      const selectedPositions = Array.from(document.querySelectorAll('input[type="checkbox"]:checked'))
+        .map((checkbox: any) => checkbox.value)
+      
+      // Сначала привязываем чат к заявке
       const response = await fetch(`/api/chats/${linkingChatId}/link-request`, {
         method: 'POST',
         headers: {
@@ -186,14 +243,53 @@ export default function ChatsPage() {
         body: JSON.stringify({ requestId: selectedRequestId })
       })
       
-      if (response.ok) {
-        alert('✅ Чат успешно привязан к заявке!')
-        setShowLinkDialog(false)
-        loadChats() // Обновляем список чатов
-      } else {
+      if (!response.ok) {
         const data = await response.json()
-        alert(`❌ Ошибка: ${data.error}`)
+        alert(`❌ Ошибка привязки к заявке: ${data.error}`)
+        setLinkingRequest(false)
+        return
       }
+      
+      // Проверяем, что выбрана хотя бы одна позиция
+      if (selectedPositions.length === 0) {
+        alert('⚠️ Пожалуйста, выберите хотя бы одну позицию для привязки чата.')
+        setLinkingRequest(false)
+        return
+      }
+      
+      // Фильтруем позиции - привязываем только те, которые еще не привязаны
+      const positionsToLink = selectedPositions.filter(posId => !currentChatPositions.includes(posId))
+      
+      if (positionsToLink.length === 0) {
+        alert('⚠️ Все выбранные позиции уже привязаны к этому чату.')
+        setLinkingRequest(false)
+        return
+      }
+      
+      // Привязываем к каждой новой позиции
+      for (const positionId of positionsToLink) {
+        const positionResponse = await fetch(`/api/chats/${linkingChatId}/link-position`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          credentials: 'include',
+          body: JSON.stringify({ positionId })
+        })
+        
+        if (!positionResponse.ok) {
+          const data = await positionResponse.json()
+          console.error(`Ошибка привязки к позиции ${positionId}:`, data.error)
+          alert(`❌ Ошибка привязки к позиции: ${data.error}`)
+          setLinkingRequest(false)
+          return
+        }
+      }
+      
+      alert(`✅ Чат успешно привязан к ${positionsToLink.length} позициям!`)
+      // Обновляем список текущих привязок
+      await loadChatPositions(linkingChatId)
+      loadChats() // Обновляем список чатов
     } catch (error) {
       console.error('Error linking chat:', error)
       alert('❌ Ошибка при привязке чата')
@@ -202,9 +298,41 @@ export default function ChatsPage() {
     }
   }
 
-  // Отвязать чат от заявки
+  // Отвязать чат от позиции
+  const unlinkChatFromPosition = async (chatId: string, positionId: string) => {
+    if (!confirm('Отвязать чат от этой позиции?')) return
+    
+    try {
+      setUnlinkingPosition(positionId)
+      const response = await fetch(`/api/chats/${chatId}/link-position`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({ positionId })
+      })
+      
+      if (response.ok) {
+        alert('✅ Чат отвязан от позиции!')
+        // Обновляем список текущих привязок
+        await loadChatPositions(chatId)
+        loadChats() // Обновляем список чатов
+      } else {
+        const data = await response.json()
+        alert(`❌ Ошибка: ${data.error}`)
+      }
+    } catch (error) {
+      console.error('Error unlinking chat from position:', error)
+      alert('❌ Ошибка при отвязке чата от позиции')
+    } finally {
+      setUnlinkingPosition(null)
+    }
+  }
+
+  // Отвязать чат от заявки (полностью)
   const unlinkChatFromRequest = async (chatId: string) => {
-    if (!confirm('Отвязать чат от заявки?')) return
+    if (!confirm('Отвязать чат от заявки и всех позиций?')) return
     
     try {
       const response = await fetch(`/api/chats/${chatId}/link-request`, {
@@ -214,6 +342,8 @@ export default function ChatsPage() {
       
       if (response.ok) {
         alert('✅ Чат отвязан от заявки!')
+        setCurrentChatPositions([])
+        setSelectedRequestId("")
         loadChats() // Обновляем список чатов
       } else {
         const data = await response.json()
@@ -333,15 +463,129 @@ export default function ChatsPage() {
     return phone?.slice(-2) || '??'
   }
 
-  const getFileIcon = (type: string) => {
-    switch (type) {
-      case "pdf":
-        return <FileText className="h-4 w-4 text-red-500" />
-      case "image":
-        return <ImageIcon className="h-4 w-4 text-blue-500" />
-      default:
-        return <File className="h-4 w-4 text-gray-500" />
+  const getFileIcon = (mimeType: string, fileName?: string) => {
+    const lowerFileName = fileName?.toLowerCase() || ''
+    
+    if (mimeType.includes('pdf') || lowerFileName.endsWith('.pdf')) {
+      return <FileText className="h-4 w-4 text-red-500" />
     }
+    if (mimeType.includes('image') || lowerFileName.match(/\.(jpg|jpeg|png|gif|webp)$/)) {
+      return <ImageIcon className="h-4 w-4 text-blue-500" />
+    }
+    if (mimeType.includes('word') || lowerFileName.match(/\.(doc|docx)$/)) {
+      return <FileText className="h-4 w-4 text-blue-600" />
+    }
+    if (mimeType.includes('excel') || lowerFileName.match(/\.(xls|xlsx)$/)) {
+      return <FileText className="h-4 w-4 text-green-600" />
+    }
+    return <File className="h-4 w-4 text-gray-500" />
+  }
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes === 0) return '0 Bytes'
+    const k = 1024
+    const sizes = ['Bytes', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+  }
+
+  const handleDownloadDocument = async (documentId: string, fileName: string) => {
+    try {
+      const response = await fetch(`/api/whatsapp/download-document/${documentId}`, {
+        credentials: 'include'
+      })
+      
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = fileName
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+      } else {
+        alert('Ошибка скачивания файла')
+      }
+    } catch (error) {
+      console.error('Error downloading document:', error)
+      alert('Ошибка скачивания файла')
+    }
+  }
+
+  const handlePreviewDocument = (documentData: any) => {
+    if (documentData.preview) {
+      // Открываем превью в новом окне
+      const newWindow = window.open('', '_blank')
+      if (newWindow) {
+        newWindow.document.write(`
+          <html>
+            <head><title>Превью документа</title></head>
+            <body style="margin:0;padding:20px;background:#f5f5f5;">
+              <h3>${documentData.file_name || documentData.filename}</h3>
+              <img src="${documentData.preview}" style="max-width:100%;height:auto;" />
+            </body>
+          </html>
+        `)
+      }
+    }
+  }
+
+  // Компонент для отображения документа
+  const DocumentMessage = ({ message }: { message: ChatMessage }) => {
+    const documentData = message.metadata?.whapi_data?.document
+    if (!documentData) return null
+
+    const fileName = documentData.file_name || documentData.filename || 'Документ'
+    const fileSize = documentData.file_size || 0
+    const mimeType = documentData.mime_type || ''
+    const hasPreview = !!documentData.preview
+
+    return (
+      <div className="border rounded-lg p-3 bg-background/50 max-w-sm">
+        <div className="flex items-start space-x-3">
+          <div className="flex-shrink-0 p-2 bg-primary/10 rounded-lg">
+            📨
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center space-x-2 mb-1">
+              {getFileIcon(mimeType, fileName)}
+              <span className="text-sm font-medium truncate">{fileName}</span>
+            </div>
+            <p className="text-xs text-muted-foreground mb-2">
+              {formatFileSize(fileSize)} • {mimeType.split('/')[1]?.toUpperCase() || 'FILE'}
+            </p>
+            <div className="flex space-x-2">
+              {hasPreview && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePreviewDocument(documentData)}
+                  className="h-7 px-2 text-xs"
+                >
+                  👁️ Просмотр
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleDownloadDocument(documentData.id, fileName)}
+                className="h-7 px-2 text-xs"
+              >
+                <Download className="h-3 w-3 mr-1" />
+                Скачать
+              </Button>
+            </div>
+          </div>
+        </div>
+        {message.content && message.content !== fileName && (
+          <div className="mt-2 pt-2 border-t">
+            <p className="text-sm text-muted-foreground">{message.content}</p>
+          </div>
+        )}
+      </div>
+    )
   }
 
   const filteredChats = chats.filter(
@@ -382,30 +626,17 @@ export default function ChatsPage() {
                   </div>
                 </div>
                 <div className="flex items-center space-x-2 flex-shrink-0">
-                  {/* Кнопки привязки к заявке */}
-                  {currentChat?.request ? (
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={() => unlinkChatFromRequest(currentChat.id)}
-                      title="Отвязать от заявки"
-                      className="hidden sm:flex"
-                    >
-                      <LinkIcon className="h-4 w-4 mr-1" />
-                      Отвязать
-                    </Button>
-                  ) : (
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={() => openLinkDialog(currentChat?.id || '')}
-                      title="Привязать к заявке"
-                      className="hidden sm:flex"
-                    >
-                      <Link className="h-4 w-4 mr-1" />
-                      К заявке
-                    </Button>
-                  )}
+                  {/* Кнопка привязки к заявке - всегда открывает диалог управления привязками */}
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => openLinkDialog(currentChat?.id || '')}
+                    title={currentChat?.request ? "Управление привязками" : "Привязать к заявке"}
+                    className="hidden sm:flex"
+                  >
+                    <Link className="h-4 w-4 mr-1" />
+                    {currentChat?.request ? 'Управление' : 'К заявке'}
+                  </Button>
                   
                   <Dialog>
                     <DialogTrigger asChild>
@@ -498,7 +729,13 @@ export default function ChatsPage() {
                             {message.direction === "OUTGOING" && message.sender && (
                               <p className="text-xs font-medium mb-1 opacity-70">{message.sender}</p>
                             )}
-                            <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                            
+                            {/* Отображение контента в зависимости от типа сообщения */}
+                            {message.messageType === 'DOCUMENT' ? (
+                              <DocumentMessage message={message} />
+                            ) : (
+                              <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                            )}
 
                             {/* Статус сообщения */}
                             {message.direction === "OUTGOING" && (
@@ -765,19 +1002,25 @@ export default function ChatsPage() {
       
       {/* Диалог привязки к заявке */}
       <Dialog open={showLinkDialog} onOpenChange={setShowLinkDialog}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Привязать чат к заявке</DialogTitle>
+            <DialogTitle>Управление привязками чата</DialogTitle>
             <DialogDescription>
-              Выберите заявку для привязки к этому чату
+              Привяжите чат к заявке и позициям или отвяжите от них
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
               <label className="text-sm font-medium">Заявка</label>
-              <select 
+              <select
                 value={selectedRequestId}
-                onChange={(e) => setSelectedRequestId(e.target.value)}
+                onChange={async (e) => {
+                  setSelectedRequestId(e.target.value)
+                  // Если чат уже привязан к другой заявке, обновляем привязки
+                  if (linkingChatId && e.target.value) {
+                    await loadChatPositions(linkingChatId)
+                  }
+                }}
                 className="w-full mt-1 p-2 border rounded-md"
               >
                 <option value="">Выберите заявку...</option>
@@ -788,28 +1031,117 @@ export default function ChatsPage() {
                 ))}
               </select>
             </div>
+            
+            {/* Текущие привязки к позициям */}
+            {linkingChatId && selectedRequestId && currentChatPositions.length > 0 && (
+              <div>
+                <label className="text-sm font-medium mb-2 block">Текущие привязки к позициям</label>
+                <div className="mt-2 space-y-2 max-h-40 overflow-y-auto border rounded-md p-2 bg-blue-50">
+                  {requests
+                    .filter(r => r.id === selectedRequestId)
+                    .flatMap(r => r.positions || [])
+                    .filter(p => currentChatPositions.includes(p.id))
+                    .map((position) => (
+                      <div key={position.id} className="flex items-center justify-between p-2 bg-white rounded border border-blue-200">
+                        <div className="flex-1">
+                          <div className="font-medium text-sm">{position.name}</div>
+                          <div className="text-xs text-gray-500">
+                            {position.quantity} {position.unit}
+                            {position.description && ` - ${position.description}`}
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => linkingChatId && unlinkChatFromPosition(linkingChatId, position.id)}
+                          disabled={unlinkingPosition === position.id}
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        >
+                          {unlinkingPosition === position.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            'Отвязать'
+                          )}
+                        </Button>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+
+            {/* Выбор позиций для привязки */}
+            {selectedRequestId && (
+              <div>
+                <label className="text-sm font-medium">Позиции для привязки (можно выбрать несколько)</label>
+                <div className="mt-2 space-y-2 max-h-60 overflow-y-auto border rounded-md p-2">
+                  {requests
+                    .filter(r => r.id === selectedRequestId)
+                    .flatMap(r => r.positions || [])
+                    .map((position) => {
+                      const isLinked = currentChatPositions.includes(position.id)
+                      return (
+                        <div key={position.id} className={`flex items-center space-x-2 p-2 hover:bg-gray-50 rounded ${isLinked ? 'bg-green-50 border border-green-200' : ''}`}>
+                          <input
+                            type="checkbox"
+                            id={`position-${position.id}`}
+                            value={position.id}
+                            className="rounded"
+                            defaultChecked={!isLinked} // Не выбираем уже привязанные
+                            disabled={isLinked} // Отключаем уже привязанные
+                          />
+                          <label
+                            htmlFor={`position-${position.id}`}
+                            className={`flex-1 cursor-pointer text-sm ${isLinked ? 'text-gray-500' : ''}`}
+                          >
+                            <div className="font-medium">
+                              {position.name}
+                              {isLinked && <span className="ml-2 text-xs text-green-600">(уже привязана)</span>}
+                            </div>
+                            <div className="text-gray-500">
+                              {position.quantity} {position.unit}
+                              {position.description && ` - ${position.description}`}
+                            </div>
+                          </label>
+                        </div>
+                      )
+                    })}
+                </div>
+              </div>
+            )}
           </div>
-          <div className="flex justify-end space-x-2 mt-4">
-            <Button 
-              variant="outline" 
-              onClick={() => setShowLinkDialog(false)}
-              disabled={linkingRequest}
-            >
-              Отмена
-            </Button>
-            <Button 
-              onClick={linkChatToRequest}
-              disabled={!selectedRequestId || linkingRequest}
-            >
-              {linkingRequest ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Привязка...
-                </>
-              ) : (
-                'Привязать'
-              )}
-            </Button>
+          <div className="flex justify-between items-center mt-4">
+            {linkingChatId && currentChatPositions.length > 0 && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => linkingChatId && unlinkChatFromRequest(linkingChatId)}
+                disabled={linkingRequest}
+              >
+                Отвязать от заявки полностью
+              </Button>
+            )}
+            <div className="flex justify-end space-x-2 ml-auto">
+              <Button
+                variant="outline"
+                onClick={() => setShowLinkDialog(false)}
+                disabled={linkingRequest}
+              >
+                Отмена
+              </Button>
+              <Button
+                onClick={linkChatToRequest}
+                disabled={!selectedRequestId || linkingRequest}
+              >
+                {linkingRequest ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Привязка...
+                  </>
+                ) : (
+                  'Привязать'
+                )}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

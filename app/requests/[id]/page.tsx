@@ -31,6 +31,7 @@ import {
   CheckCircle,
   Clock,
   Brain,
+  FileBarChart,
 } from "lucide-react"
 import Link from "next/link"
 import { RequestEditDialog } from "@/components/request-edit-dialog"
@@ -464,6 +465,14 @@ export default function RequestDetailPage() {
               Основная информация
             </span>
             <div className="flex space-x-2">
+              {request.status === 'COMPLETED' && (
+                <Link href={`/requests/${request.id}/report`}>
+                  <Button variant="outline" className="bg-yellow-50 hover:bg-yellow-100 border-yellow-300 text-yellow-800">
+                    <FileBarChart className="mr-2 h-4 w-4" />
+                    Отчет
+                  </Button>
+                </Link>
+              )}
               <RequestEditDialog requestId={request.id} initialData={request} />
               <RequestDeleteDialog 
                 requestId={request.id} 

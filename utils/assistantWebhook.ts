@@ -24,23 +24,32 @@ export async function generateAssistantResponse(
       requestId,
       chat.contactName || chat.phoneNumber
     )
-    
-    // Формируем контекстное сообщение для Assistant
-    const contextMessage = `
-ЗАЯВКА: ${chat.request.requestNumber}
-ПОЗИЦИИ:
+
+    // Проверяем, первое ли это сообщение в thread
+    const threadStats = await assistantManager.getThreadStats(chat.id)
+    const isFirstMessage = !threadStats || threadStats.messageCount === 0
+
+    let messageToSend = supplierMessage
+
+    // Если это первое сообщение, добавляем контекст заявки
+    if (isFirstMessage) {
+      messageToSend = `
+КОНТЕКСТ ЗАЯВКИ:
+Номер заявки: ${chat.request.requestNumber}
+Позиции для закупки:
 ${positions}
 
-СООБЩЕНИЕ ПОСТАВЩИКА: "${supplierMessage}"
+Поставщик написал: "${supplierMessage}"
 
-Ответь как Санжар - менеджер по закупкам. Главная цель: получить КП!`
+Начни диалог как Санжар - менеджер по закупкам. Цель: получить КП!`
+    }
     
     console.log(`🤖 [${requestId}] Отправляем сообщение в Assistant thread: ${threadId}`)
     
     // Отправляем сообщение и получаем ответ от Assistant
     const aiResponse = await assistantManager.sendMessage(
       threadId,
-      contextMessage,
+      messageToSend,
       chat.id
     )
     

@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Send, Eye, Check, Filter, Loader2 } from "lucide-react"
+import { Send, Eye, Check, Filter, Loader2, FileBarChart } from "lucide-react"
 import Link from "next/link"
 import { RequestUploadDialog } from "@/components/request-upload-dialog"
 import { RequestCreateDialog } from "@/components/request-create-dialog"
@@ -237,6 +237,14 @@ export default function RequestsPage() {
                             Просмотр
                           </Button>
                         </Link>
+                        {request.status === "COMPLETED" && (
+                          <Link href={`/requests/${request.id}/report`}>
+                            <Button variant="outline" size="sm" className="bg-yellow-50 hover:bg-yellow-100 border-yellow-300 text-yellow-800">
+                              <FileBarChart className="h-4 w-4 mr-1" />
+                              Отчет
+                            </Button>
+                          </Link>
+                        )}
                         {request.status === "UPLOADED" && (
                           <Button variant="default" size="sm">
                             <Send className="h-4 w-4 mr-1" />

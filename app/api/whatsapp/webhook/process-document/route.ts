@@ -37,12 +37,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Чат не найден' }, { status: 404 })
     }
 
-    if (!chat.request) {
+    if (!chat.requestId) {
       console.log(`⚠️ [${requestId}] Чат не привязан к заявке`)
       return NextResponse.json({ error: 'Чат не привязан к заявке' }, { status: 400 })
     }
 
-    console.log(`🔗 [${requestId}] Чат привязан к заявке: ${chat.request.requestNumber}`)
+    console.log(`🔗 [${requestId}] Чат привязан к заявке: ${chat.requestId}`)
 
     // Проверяем наличие OpenAI API ключа
     const openaiSetting = await prisma.systemSetting.findUnique({
@@ -86,53 +86,142 @@ export async function POST(request: NextRequest) {
     console.log(`🔍 [${requestId}] Парсим документ...`)
     const parsedDocument = await parseDocument(documentBuffer, fileName, mimeType)
     
-    // Создаем коммерческое предложение в базе данных
-    console.log(`💾 [${requestId}] Сохраняем результат в базу данных...`)
-    const commercialOffer = await prisma.commercialOffer.create({
-      data: {
-        chatId: chatId,
-        requestId: chat.requestId,
-        fileName: fileName,
-        filePath: savedDocumentPath,
-        mimeType: mimeType,
-        
-        // Основная информация
-        totalPrice: parsedDocument.totalPrice,
-        currency: parsedDocument.currency,
-        company: parsedDocument.company,
-        
-        // Дополнительная информация
-        deliveryTerm: parsedDocument.deliveryTerm,
-        paymentTerm: parsedDocument.paymentTerm,
-        validUntil: parsedDocument.validUntil,
-        
-        // Метаданные
-        confidence: parsedDocument.confidence,
-        needsManualReview: parsedDocument.needsManualReview,
-        extractedText: parsedDocument.extractedText,
-        
-        // Позиции (сохраняем как JSON)
-        positions: JSON.stringify(parsedDocument.positions),
-        
-        // Статус
-        status: parsedDocument.needsManualReview ? CommercialOfferStatus.REVIEWING : CommercialOfferStatus.RECEIVED,
-        
-        createdAt: new Date()
+    // Ищем все позиции, к которым привязан чат
+    // Логика простая: если чат привязан к 1 позиции - создаем КП для этой позиции
+    // Если чат привязан к нескольким позициям - создаем КП для всех привязанных позиций
+    // Позиции выбираются в UI при привязке чата, парсинг названий из документа не нужен
+    const positionChats = await prisma.positionChat.findMany({
+      where: {
+        chatId
+      },
+      include: {
+        position: true
       }
     })
+
+    console.log(`🔍 [${requestId}] Найдено связей позиций с чатом: ${positionChats.length}`)
+    if (positionChats.length > 0) {
+      positionChats.forEach(pc => {
+        console.log(`  - Позиция ${pc.positionId} (${pc.position.name}), статус: ${pc.status}`)
+      })
+    }
+
+    // Создаем коммерческие предложения для каждой связанной позиции
+    console.log(`💾 [${requestId}] Сохраняем результат в базу данных...`)
+    const commercialOffers = []
     
-    console.log(`✅ [${requestId}] Коммерческое предложение сохранено с ID: ${commercialOffer.id}`)
+    if (positionChats.length > 0) {
+      // Создаем КП для всех позиций, к которым привязан чат
+      for (const positionChat of positionChats) {
+        const commercialOffer = await prisma.commercialOffer.create({
+          data: {
+              chatId: chatId,
+              requestId: chat.requestId!,
+              positionId: positionChat.positionId, // Привязываем к конкретной позиции
+              fileName: fileName,
+              filePath: savedDocumentPath,
+              mimeType: mimeType,
+              
+              // Основная информация
+              totalPrice: parsedDocument.totalPrice,
+              currency: parsedDocument.currency,
+              company: parsedDocument.company,
+              
+              // Дополнительная информация
+              deliveryTerm: parsedDocument.deliveryTerm,
+              paymentTerm: parsedDocument.paymentTerm,
+              validUntil: parsedDocument.validUntil,
+              
+              // Метаданные
+              confidence: parsedDocument.confidence,
+              needsManualReview: parsedDocument.needsManualReview,
+              extractedText: parsedDocument.extractedText,
+              
+              // Позиции (сохраняем как JSON)
+              positions: JSON.stringify(parsedDocument.positions),
+              
+              // Статус
+              status: parsedDocument.needsManualReview ? CommercialOfferStatus.REVIEWING : CommercialOfferStatus.RECEIVED,
+              
+              createdAt: new Date()
+            }
+        })
+        
+        commercialOffers.push(commercialOffer)
+        
+        // Обновляем статус связи позиции с чатом (если еще не RECEIVED)
+        if (positionChat.status !== 'RECEIVED') {
+        await prisma.positionChat.update({
+          where: { id: positionChat.id },
+          data: {
+            status: 'RECEIVED',
+            quoteReceivedAt: new Date()
+          }
+        })
+        } else {
+          // Если статус уже RECEIVED, просто обновляем время получения
+          await prisma.positionChat.update({
+            where: { id: positionChat.id },
+          data: {
+              quoteReceivedAt: new Date()
+          }
+        })
+        }
+        
+        console.log(`✅ [${requestId}] КП создано для позиции ${positionChat.positionId} (${positionChat.position.name})`)
+      }
+    } else {
+      // Если чат не связан с конкретными позициями, создаем общее КП для заявки
+      const commercialOffer = await prisma.commercialOffer.create({
+        data: {
+          chatId: chatId,
+          requestId: chat.requestId!,
+          // positionId остается null - общее КП для заявки
+          fileName: fileName,
+          filePath: savedDocumentPath,
+          mimeType: mimeType,
+          
+          // Основная информация
+          totalPrice: parsedDocument.totalPrice,
+          currency: parsedDocument.currency,
+          company: parsedDocument.company,
+          
+          // Дополнительная информация
+          deliveryTerm: parsedDocument.deliveryTerm,
+          paymentTerm: parsedDocument.paymentTerm,
+          validUntil: parsedDocument.validUntil,
+          
+          // Метаданные
+          confidence: parsedDocument.confidence,
+          needsManualReview: parsedDocument.needsManualReview,
+          extractedText: parsedDocument.extractedText,
+          
+          // Позиции (сохраняем как JSON)
+          positions: JSON.stringify(parsedDocument.positions),
+          
+          // Статус
+          status: parsedDocument.needsManualReview ? CommercialOfferStatus.REVIEWING : CommercialOfferStatus.RECEIVED,
+          
+          createdAt: new Date()
+        }
+      })
+      
+      commercialOffers.push(commercialOffer)
+    }
+    
+    console.log(`✅ [${requestId}] Коммерческие предложения сохранены: ${commercialOffers.length} шт`)
     
     // Обновляем счетчик КП для всех позиций в заявке
-    await updateQuotesReceived(chat.requestId)
+    await updateQuotesReceived(chat.requestId!)
     
     // Проверяем готовность к анализу заявки
-    const isReadyForAnalysis = await checkReadyForAnalysis(chat.requestId)
+    const isReadyForAnalysis = await checkReadyForAnalysis(chat.requestId!)
     
     const response = {
       success: true,
       requestId,
-      commercialOfferId: commercialOffer.id,
+      commercialOffersCount: commercialOffers.length,
+      commercialOfferIds: commercialOffers.map(co => co.id),
       parsedData: {
         totalPrice: parsedDocument.totalPrice,
         currency: parsedDocument.currency,
@@ -154,7 +243,7 @@ export async function POST(request: NextRequest) {
     
     return NextResponse.json({
       success: false,
-      error: error.message,
+      error: error instanceof Error ? error.message : String(error),
       requestId,
       processingTime: Date.now() - startTime
     }, { status: 500 })
@@ -258,26 +347,37 @@ async function checkReadyForAnalysis(requestId: string): Promise<boolean> {
 }
 
 /**
- * Обновляет счетчик полученных КП для всех позиций в заявке
+ * Обновляет счетчик полученных КП для каждой позиции в заявке отдельно
  */
 async function updateQuotesReceived(requestId: string): Promise<void> {
   try {
-    // Получаем количество КП для заявки
+    // Получаем все позиции заявки
+    const positions = await prisma.position.findMany({
+      where: { requestId },
+      select: { id: true }
+    })
+    
+    // Для каждой позиции считаем количество КП отдельно
+    for (const position of positions) {
     const quotesCount = await prisma.commercialOffer.count({
       where: { 
         requestId,
+          positionId: position.id, // Считаем только КП для этой позиции
         confidence: { gte: 70 }, // Считаем только качественные КП
         needsManualReview: false
       }
     })
     
-    // Обновляем все позиции в заявке
-    await prisma.position.updateMany({
-      where: { requestId },
+      // Обновляем счетчик для конкретной позиции
+      await prisma.position.update({
+        where: { id: position.id },
       data: { quotesReceived: quotesCount }
     })
     
-    console.log(`📊 Обновлен счетчик КП для заявки ${requestId}: ${quotesCount} КП`)
+      console.log(`📊 Позиция ${position.id}: ${quotesCount} КП`)
+    }
+    
+    console.log(`📊 Обновлены счетчики КП для всех позиций заявки ${requestId}`)
     
   } catch (error) {
     console.error('❌ Ошибка обновления счетчика КП:', error)

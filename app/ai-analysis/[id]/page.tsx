@@ -57,6 +57,8 @@ interface CommercialOffer {
   positions: any[]
   createdAt: string
   fileName: string
+  filePath?: string | null // Путь к файлу для скачивания
+  positionId?: string | null // ID позиции, к которой относится КП
 }
 
 interface Position {
@@ -198,27 +200,69 @@ export default function RequestAnalysisPage() {
     setShowFinalizeDialog(true)
   }
 
-  // Финализация выбора поставщика
+  // Скачивание файла КП
+  const downloadOfferFile = async (offerId: string, fileName: string) => {
+    try {
+      const response = await fetch(`/api/commercial-offers/${offerId}/download`, {
+        credentials: 'include'
+      })
+
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = fileName
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+      } else {
+        const errorData = await response.json()
+        alert(`❌ Ошибка скачивания: ${errorData.error || 'Файл не найден'}`)
+      }
+    } catch (error) {
+      console.error('Error downloading offer file:', error)
+      alert('❌ Ошибка при скачивании файла')
+    }
+  }
+
+  // Финализация выбора поставщика для позиции
   const finalizeSelection = async () => {
-    if (!selectedOfferId || !request) return
+    if (!selectedOfferId || !request || !selectedPosition) return
 
     setFinalizing(true)
     
     try {
-      const response = await fetch(`/api/requests/${request.id}/finalize`, {
+      // Используем новый API для завершения позиции, а не всей заявки
+      const response = await fetch(`/api/requests/${request.id}/positions/${selectedPosition.id}/select-offer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          selectedOfferId,
+          offerId: selectedOfferId,
           reason: decisionReason
         })
       })
 
       if (response.ok) {
-        alert('✅ Поставщик выбран! Заявка завершена.')
-        // Перенаправляем обратно к списку заявок
+        const data = await response.json()
+        alert(`✅ КП выбрано для позиции "${selectedPosition.name}". ${data.allPositionsCompleted ? 'Все позиции завершены, заявка завершена.' : 'Продолжите выбор КП для других позиций.'}`)
+        
+        // Перезагружаем заявку для обновления данных
+        await loadRequest()
+        
+        // Если все позиции завершены, перенаправляем на список
+        if (data.allPositionsCompleted) {
+          setTimeout(() => {
         window.location.href = '/ai-analysis'
+          }, 2000)
+        } else {
+          // Очищаем выбранное КП и закрываем диалог
+          setSelectedOfferId("")
+          setDecisionReason("")
+          setShowFinalizeDialog(false)
+        }
       } else {
         const errorData = await response.json()
         alert(`❌ Ошибка: ${errorData.error}`)
@@ -228,7 +272,6 @@ export default function RequestAnalysisPage() {
       alert('❌ Ошибка при сохранении выбора')
     } finally {
       setFinalizing(false)
-      setShowFinalizeDialog(false)
     }
   }
 
@@ -237,8 +280,8 @@ export default function RequestAnalysisPage() {
     if (!request || !request.commercialOffers) return []
     
     return request.commercialOffers.filter(offer => {
-      // Пока просто возвращаем все КП для заявки
-      return true
+      // Фильтруем КП по positionId - показываем только те, что привязаны к этой позиции
+      return offer.positionId === positionId
     })
   }
 
@@ -550,10 +593,16 @@ export default function RequestAnalysisPage() {
                                 </div>
                                 
                                 <div className="ml-4 flex flex-col gap-2">
-                                  <Button variant="outline" size="sm">
-                                    <Eye className="mr-1 h-3 w-3" />
-                                    Просмотр
+                                  {offer.filePath && (
+                                    <Button 
+                                      variant="outline" 
+                                      size="sm"
+                                      onClick={() => downloadOfferFile(offer.id, offer.fileName)}
+                                    >
+                                      <Download className="mr-1 h-3 w-3" />
+                                      Скачать
                                   </Button>
+                                  )}
                                   <Button 
                                     variant="default" 
                                     size="sm"

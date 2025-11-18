@@ -7,6 +7,9 @@ if (!process.env.OPENAI_API_KEY) {
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+  defaultHeaders: {
+    'OpenAI-Beta': 'assistants=v2'
+  }
 });
 
 const SYSTEM_PROMPT = `Ты - ассистент по составлению коммерческих сообщений для компании TOO Alex. 

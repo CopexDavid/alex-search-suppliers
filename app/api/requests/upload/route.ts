@@ -11,6 +11,18 @@ export async function POST(request: NextRequest) {
     
     const formData = await request.formData()
     const file = formData.get('file') as File
+    const searchRegion = formData.get('searchRegion') as string || 'KAZAKHSTAN'
+    const enableCategorization = formData.get('enableCategorization') === 'true'
+    const categoriesJson = formData.get('categories') as string
+    
+    let categories: string[] = []
+    if (enableCategorization && categoriesJson) {
+      try {
+        categories = JSON.parse(categoriesJson)
+      } catch (e) {
+        console.warn('Failed to parse categories:', e)
+      }
+    }
     
     if (!file) {
       return NextResponse.json(
@@ -64,6 +76,9 @@ export async function POST(request: NextRequest) {
         creatorId: user.id,
         status: RequestStatus.UPLOADED,
         originalFile: fileName,
+        searchRegion: searchRegion,
+        enableCategorization: enableCategorization,
+        categories: categories.length > 0 ? JSON.stringify(categories) : null,
         positions: {
           create: parsedData.positions.map((pos) => ({
             sku: pos.sku || '',

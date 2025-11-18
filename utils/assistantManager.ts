@@ -130,8 +130,16 @@ export class AssistantManager {
 
       // 3. Ждем завершения
       let runStatus = run
-      while (runStatus.status === 'running' || runStatus.status === 'queued') {
+      let attempts = 0
+      const maxAttempts = 30 // Максимум 30 секунд ожидания
+      
+      while (runStatus.status === 'running' || runStatus.status === 'queued' || runStatus.status === 'in_progress') {
+        if (attempts >= maxAttempts) {
+          throw new Error(`Timeout: Run не завершился за ${maxAttempts} секунд`)
+        }
+        
         await new Promise(resolve => setTimeout(resolve, 1000))
+        attempts++
         
         const statusResponse = await fetch(`https://api.openai.com/v1/threads/${threadId}/runs/${run.id}`, {
           headers: {
@@ -145,10 +153,11 @@ export class AssistantManager {
         }
 
         runStatus = await statusResponse.json()
-        console.log(`⏳ Статус run: ${runStatus.status}`)
+        console.log(`⏳ Статус run: ${runStatus.status} (попытка ${attempts}/${maxAttempts})`)
       }
 
       if (runStatus.status !== 'completed') {
+        console.error('❌ Детали ошибки run:', runStatus)
         throw new Error(`Run завершился с ошибкой: ${runStatus.status}`)
       }
 

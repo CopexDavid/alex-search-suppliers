@@ -49,6 +49,8 @@ model Request {
   originalFile  String?
   priority      Int               @default(0)
   searchRegion  String            @default("KAZAKHSTAN") // KAZAKHSTAN или CIS
+  enableCategorization Boolean      @default(false)
+  categories    String?           // JSON массив категорий товаров
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
   approvals     Approval[]
@@ -82,6 +84,7 @@ model Position {
   request     Request     @relation(fields: [requestId], references: [id], onDelete: Cascade)
   quoteItems  QuoteItem[]
   positionChats PositionChat[]
+  commercialOffers CommercialOffer[]
 
   @@map("positions")
 }
@@ -426,6 +429,7 @@ model CommercialOffer {
   id              String   @id @default(uuid())
   chatId          String
   requestId       String
+  positionId      String?  // ID конкретной позиции, к которой относится КП
   fileName        String
   filePath        String?  // Путь к сохраненному файлу
   mimeType        String
@@ -459,11 +463,13 @@ model CommercialOffer {
   // Связи
   chat            Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
   request         Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  position        Position? @relation(fields: [positionId], references: [id], onDelete: SetNull)
   decisions       RequestDecision[]
 
   @@map("commercial_offers")
   @@index([chatId])
   @@index([requestId])
+  @@index([positionId])
   @@index([status])
   @@index([createdAt])
 }

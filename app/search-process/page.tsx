@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { SearchResult } from '@/types/search';
+import { getRegionBadgeColor } from '@/utils/regionFilter';
 import {
   Search,
   Building2,
@@ -96,18 +97,20 @@ const COUNTRY_INFO = {
 } as const;
 
 function getCountryFromUrl(url: string): { name: string; flag: string; color: string } {
-  try {
-    const hostname = new URL(url).hostname;
-    const domain = hostname.split('.').pop()?.toLowerCase();
+  const regionInfo = getRegionBadgeColor(url);
     
-    // Проверяем специальные случаи для китайских доменов
-    if (hostname.includes('.cn') || hostname.includes('.alibaba.') || hostname.includes('.1688.')) {
-      return COUNTRY_INFO.cn;
-    }
-    
-    return COUNTRY_INFO[domain as keyof typeof COUNTRY_INFO] || COUNTRY_INFO.com;
-  } catch {
-    return COUNTRY_INFO.com;
+  // Преобразуем в старый формат для совместимости
+  switch (regionInfo.text) {
+    case '🇰🇿 KZ':
+      return { name: 'Казахстан', flag: '🇰🇿', color: regionInfo.color };
+    case '🇷🇺 RU':
+      return { name: 'Россия', flag: '🇷🇺', color: regionInfo.color };
+    case '🇺🇦 UA':
+      return { name: 'Украина', flag: '🇺🇦', color: regionInfo.color };
+    case '🇧🇾 BY':
+      return { name: 'Беларусь', flag: '🇧🇾', color: regionInfo.color };
+    default:
+      return { name: 'Другое', flag: '🌐', color: regionInfo.color };
   }
 }
 
@@ -146,7 +149,7 @@ export default function SearchProcessPage() {
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ searchQuery: enhancedQuery }),
+      body: JSON.stringify({ searchQuery: enhancedQuery, searchRegion: selectedRegion }),
     }).then(async (response) => {
       const data = await response.json();
       if (!response.ok) {

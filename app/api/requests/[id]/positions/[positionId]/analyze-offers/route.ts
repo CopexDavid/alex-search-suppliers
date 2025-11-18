@@ -34,22 +34,9 @@ export async function POST(
 
     console.log(`🧠 Starting AI analysis for offers in position ${positionId}`)
 
-    // Получаем позицию и коммерческие предложения
+    // Получаем позицию
     const position = await prisma.position.findUnique({
-      where: { id: positionId },
-      include: {
-        request: {
-          include: {
-            commercialOffers: {
-              where: {
-                confidence: { gte: 70 },
-                needsManualReview: false
-              },
-              orderBy: { totalPrice: 'asc' } // Сортируем по цене
-            }
-          }
-        }
-      }
+      where: { id: positionId }
     })
 
     if (!position || position.requestId !== requestId) {
@@ -59,7 +46,16 @@ export async function POST(
       )
     }
 
-    const commercialOffers = position.request.commercialOffers
+    // Получаем коммерческие предложения только для этой позиции
+    const commercialOffers = await prisma.commercialOffer.findMany({
+      where: {
+        requestId,
+        positionId: positionId, // Фильтруем только КП для этой позиции
+        confidence: { gte: 70 },
+        needsManualReview: false
+      },
+      orderBy: { totalPrice: 'asc' } // Сортируем по цене
+    })
 
     if (commercialOffers.length < 1) {
       return NextResponse.json(

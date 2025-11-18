@@ -48,7 +48,8 @@ class OpenAIService {
           }
         })
         this.assistantId = assistantId || null
-        console.log('✅ OpenAI client initialized')
+        console.log('✅ OpenAI client initialized with v2 headers')
+        console.log('🔧 Headers:', this.client.defaultHeaders)
       } else {
         console.log('⚠️ OpenAI API key not configured')
       }
@@ -113,7 +114,8 @@ class OpenAIService {
       })
 
       const run = await this.client!.beta.threads.runs.create(thread.id, {
-        assistant_id: this.assistantId!
+        assistant_id: this.assistantId!,
+        additional_instructions: "Отвечай только текстом сообщения без дополнительных пояснений."
       })
 
       // Ждем завершения выполнения
@@ -128,8 +130,9 @@ class OpenAIService {
         const messages = await this.client!.beta.threads.messages.list(thread.id)
         const lastMessage = messages.data[0]
         
-        if (lastMessage.role === 'assistant' && lastMessage.content[0].type === 'text') {
-          return lastMessage.content[0].text.value.trim()
+        if (lastMessage.role === 'assistant' && lastMessage.content[0]?.type === 'text') {
+          const textContent = lastMessage.content[0] as any
+          return textContent.text?.value?.trim() || textContent.text || 'Ошибка получения ответа'
         }
       }
 
@@ -207,5 +210,8 @@ export default openaiService
 
 // Экспорт простого OpenAI клиента для парсера
 export const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || 'sk-your-openai-api-key-here'
+  apiKey: process.env.OPENAI_API_KEY || 'sk-your-openai-api-key-here',
+  defaultHeaders: {
+    'OpenAI-Beta': 'assistants=v2'
+  }
 })

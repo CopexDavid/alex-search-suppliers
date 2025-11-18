@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { useState, Suspense } from "react"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -12,6 +12,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Eye, EyeOff, Loader2 } from "lucide-react"
 
 function LoginForm() {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const redirectUrl = searchParams.get('redirect') || '/dashboard'
 
@@ -117,7 +118,13 @@ function LoginForm() {
       </Button>
 
       <div className="text-center">
-        <Button variant="link" className="text-sm" type="button" disabled={loading}>
+        <Button
+          variant="link"
+          className="text-sm"
+          type="button"
+          disabled={loading}
+          onClick={() => router.push('/reset-password')}
+        >
           Забыли пароль?
         </Button>
       </div>

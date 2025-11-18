@@ -4,6 +4,7 @@ import puppeteer from 'puppeteer';
 // import { searchMarketplaces, MarketplaceResult } from '@/services/marketplaceParsers'; // ОТКЛЮЧЕНО
 import { YandexSearchService, convertYandexResults } from '@/services/yandexSearch';
 import { SerpApiService, convertSerpApiResults } from '@/services/serpApiSearch';
+import { filterByRegion, SearchRegion } from '@/utils/regionFilter';
 
 const SEARCH_ENGINE_ID = process.env.GOOGLE_SEARCH_ENGINE_ID || 'd7065ea5c59764932';
 
@@ -115,7 +116,7 @@ async function parseContacts(url: string): Promise<any> {
 
 export async function POST(request: Request) {
   try {
-    const { searchQuery } = await request.json();
+    const { searchQuery, searchRegion = 'KAZAKHSTAN' } = await request.json();
 
     if (!searchQuery) {
       return NextResponse.json(
@@ -442,7 +443,14 @@ export async function POST(request: Request) {
     console.log('='.repeat(60));
     console.log(`Starting parallel parsing of ${allResults.size} websites...`);
     console.log('');
-    const resultsArray = Array.from(allResults.values());
+    
+    // Применяем фильтрацию по регионам
+    const allResultsArray = Array.from(allResults.values());
+    const filteredResults = filterByRegion(allResultsArray, searchRegion as SearchRegion);
+    
+    console.log(`🌍 Region filter applied: ${allResultsArray.length} → ${filteredResults.length} results (region: ${searchRegion})`);
+    
+    const resultsArray = filteredResults;
     
     const parsePromises = resultsArray.map(async (result) => {
       const contacts = await parseContacts(result.url);

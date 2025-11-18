@@ -181,7 +181,7 @@ export function MessageLogsDialog({ trigger }: MessageLogsDialogProps) {
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="w-full max-w-[95vw] sm:max-w-2xl md:max-w-4xl lg:max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center">
             <MessageSquare className="mr-2 h-5 w-5" />
@@ -192,50 +192,50 @@ export function MessageLogsDialog({ trigger }: MessageLogsDialogProps) {
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="flex-1 pr-4">
+        <div className="flex-1 flex flex-col overflow-hidden">
           {/* Статистика */}
-        <div className="grid grid-cols-4 gap-4 mb-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 mb-4 px-1">
           <Card>
-            <CardContent className="p-4">
+            <CardContent className="p-3 sm:p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Отправлено</p>
-                  <p className="text-2xl font-bold text-green-600">{stats.sent}</p>
+                  <p className="text-xs sm:text-sm text-muted-foreground">Отправлено</p>
+                  <p className="text-lg sm:text-2xl font-bold text-green-600">{stats.sent}</p>
                 </div>
-                <CheckCircle className="h-8 w-8 text-green-600" />
+                <CheckCircle className="h-6 w-6 sm:h-8 sm:w-8 text-green-600" />
               </div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-4">
+            <CardContent className="p-3 sm:p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Ошибки</p>
-                  <p className="text-2xl font-bold text-red-600">{stats.failed}</p>
+                  <p className="text-xs sm:text-sm text-muted-foreground">Ошибки</p>
+                  <p className="text-lg sm:text-2xl font-bold text-red-600">{stats.failed}</p>
                 </div>
-                <XCircle className="h-8 w-8 text-red-600" />
+                <XCircle className="h-6 w-6 sm:h-8 sm:w-8 text-red-600" />
               </div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-4">
+            <CardContent className="p-3 sm:p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Ожидание</p>
-                  <p className="text-2xl font-bold text-yellow-600">{stats.pending}</p>
+                  <p className="text-xs sm:text-sm text-muted-foreground">Ожидание</p>
+                  <p className="text-lg sm:text-2xl font-bold text-yellow-600">{stats.pending}</p>
                 </div>
-                <Clock className="h-8 w-8 text-yellow-600" />
+                <Clock className="h-6 w-6 sm:h-8 sm:w-8 text-yellow-600" />
               </div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-4">
+            <CardContent className="p-3 sm:p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Всего</p>
-                  <p className="text-2xl font-bold">{stats.total}</p>
+                  <p className="text-xs sm:text-sm text-muted-foreground">Всего</p>
+                  <p className="text-lg sm:text-2xl font-bold">{stats.total}</p>
                 </div>
-                <MessageSquare className="h-8 w-8 text-blue-600" />
+                <MessageSquare className="h-6 w-6 sm:h-8 sm:w-8 text-blue-600" />
               </div>
             </CardContent>
           </Card>
@@ -250,7 +250,7 @@ export function MessageLogsDialog({ trigger }: MessageLogsDialogProps) {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="status">Статус</Label>
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -299,16 +299,16 @@ export function MessageLogsDialog({ trigger }: MessageLogsDialogProps) {
               </div>
             </div>
 
-            <div className="flex justify-between items-center">
-              <Button variant="outline" size="sm" onClick={clearFilters}>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+              <Button variant="outline" size="sm" onClick={clearFilters} className="w-full sm:w-auto">
                 Очистить фильтры
               </Button>
-              <div className="flex space-x-2">
-                <Button variant="outline" size="sm" onClick={() => loadLogs(1)}>
+              <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2 w-full sm:w-auto">
+                <Button variant="outline" size="sm" onClick={() => loadLogs(1)} className="w-full sm:w-auto">
                   <RefreshCw className="mr-2 h-4 w-4" />
                   Обновить
                 </Button>
-                <Button variant="outline" size="sm">
+                <Button variant="outline" size="sm" className="w-full sm:w-auto">
                   <Download className="mr-2 h-4 w-4" />
                   Экспорт
                 </Button>
@@ -318,8 +318,8 @@ export function MessageLogsDialog({ trigger }: MessageLogsDialogProps) {
         </Card>
 
         {/* Список сообщений */}
-        <div className="flex-1 min-h-0">
-          <ScrollArea className="h-full">
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <ScrollArea className="h-full px-1">
             {loading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-8 w-8 animate-spin mr-2" />
@@ -333,66 +333,66 @@ export function MessageLogsDialog({ trigger }: MessageLogsDialogProps) {
             ) : (
               <div className="space-y-2">
                 {messages.map((message) => (
-                  <Card key={message.id} className="p-4">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1 space-y-2">
-                        {/* Заголовок */}
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-3">
-                            <Phone className="h-4 w-4 text-muted-foreground" />
-                            <span className="font-medium">
-                              {message.chat.contactName || formatPhoneNumber(message.chat.phoneNumber)}
-                            </span>
-                            {message.chat.request && (
-                              <Badge variant="outline" className="text-xs">
-                                {message.chat.request.requestNumber}
-                              </Badge>
-                            )}
-                          </div>
+                  <Card key={message.id} className="p-3 sm:p-4">
+                    <div className="flex flex-col space-y-3">
+                      {/* Заголовок */}
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
+                          <Phone className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                          <span className="font-medium text-sm sm:text-base truncate">
+                            {message.chat.contactName || formatPhoneNumber(message.chat.phoneNumber)}
+                          </span>
+                          {message.chat.request && (
+                            <Badge variant="outline" className="text-xs flex-shrink-0">
+                              {message.chat.request.requestNumber}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex-shrink-0">
                           {getStatusBadge(message.status)}
                         </div>
-
-                        {/* Содержимое сообщения */}
-                        <div className="bg-muted/50 rounded-lg p-3">
-                          <p className="text-sm">{message.content}</p>
-                        </div>
-
-                        {/* Метаинформация */}
-                        <div className="flex items-center justify-between text-xs text-muted-foreground">
-                          <div className="flex items-center space-x-4">
-                            <div className="flex items-center space-x-1">
-                              <Calendar className="h-3 w-3" />
-                              <span>{formatTimestamp(message.timestamp)}</span>
-                            </div>
-                            {message.chat.assignedUser && (
-                              <div className="flex items-center space-x-1">
-                                <User className="h-3 w-3" />
-                                <span>{message.chat.assignedUser.name}</span>
-                              </div>
-                            )}
-                            {message.messageId && (
-                              <span>ID: {message.messageId}</span>
-                            )}
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <Badge variant="secondary" className="text-xs">
-                              {message.messageType}
-                            </Badge>
-                          </div>
-                        </div>
-
-                        {/* Метаданные (если есть) */}
-                        {message.metadata && (
-                          <details className="text-xs">
-                            <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                              Метаданные
-                            </summary>
-                            <pre className="mt-2 p-2 bg-muted rounded text-xs overflow-auto">
-                              {JSON.stringify(message.metadata, null, 2)}
-                            </pre>
-                          </details>
-                        )}
                       </div>
+
+                      {/* Содержимое сообщения */}
+                      <div className="bg-muted/50 rounded-lg p-3">
+                        <p className="text-sm break-words">{message.content}</p>
+                      </div>
+
+                      {/* Метаинформация */}
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs text-muted-foreground">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+                          <div className="flex items-center space-x-1">
+                            <Calendar className="h-3 w-3" />
+                            <span>{formatTimestamp(message.timestamp)}</span>
+                          </div>
+                          {message.chat.assignedUser && (
+                            <div className="flex items-center space-x-1">
+                              <User className="h-3 w-3" />
+                              <span className="truncate">{message.chat.assignedUser.name}</span>
+                            </div>
+                          )}
+                          {message.messageId && (
+                            <span className="truncate">ID: {message.messageId}</span>
+                          )}
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Badge variant="secondary" className="text-xs">
+                            {message.messageType}
+                          </Badge>
+                        </div>
+                      </div>
+
+                      {/* Метаданные (если есть) */}
+                      {message.metadata && (
+                        <details className="text-xs">
+                          <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                            Метаданные
+                          </summary>
+                          <pre className="mt-2 p-2 bg-muted rounded text-xs overflow-auto max-h-32">
+                            {JSON.stringify(message.metadata, null, 2)}
+                          </pre>
+                        </details>
+                      )}
                     </div>
                   </Card>
                 ))}
@@ -403,20 +403,21 @@ export function MessageLogsDialog({ trigger }: MessageLogsDialogProps) {
 
         {/* Пагинация */}
         {pagination.pages > 1 && (
-          <div className="flex items-center justify-between pt-4 border-t">
-            <div className="text-sm text-muted-foreground">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4 border-t px-1">
+            <div className="text-sm text-muted-foreground text-center sm:text-left">
               Показано {messages.length} из {pagination.total} сообщений
             </div>
-            <div className="flex space-x-2">
+            <div className="flex items-center justify-center space-x-2">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => loadLogs(pagination.page - 1)}
                 disabled={pagination.page <= 1 || loading}
+                className="text-xs sm:text-sm"
               >
                 Предыдущая
               </Button>
-              <span className="flex items-center px-3 text-sm">
+              <span className="flex items-center px-2 sm:px-3 text-xs sm:text-sm whitespace-nowrap">
                 {pagination.page} из {pagination.pages}
               </span>
               <Button
@@ -424,13 +425,14 @@ export function MessageLogsDialog({ trigger }: MessageLogsDialogProps) {
                 size="sm"
                 onClick={() => loadLogs(pagination.page + 1)}
                 disabled={pagination.page >= pagination.pages || loading}
+                className="text-xs sm:text-sm"
               >
                 Следующая
               </Button>
             </div>
           </div>
         )}
-        </ScrollArea>
+        </div>
       </DialogContent>
     </Dialog>
   )

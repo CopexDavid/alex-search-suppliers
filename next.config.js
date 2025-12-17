@@ -39,7 +39,7 @@ const config = {
   
   // Настройки для работы с внешними доменами (если нужно)
   images: {
-    domains: ['localhost'],
+    domains: ['alexautozakup'],
   },
 }
 

@@ -5,7 +5,7 @@ async function testRequestsAPI() {
   try {
     console.log('🔍 Тестируем API /api/requests...\n')
     
-    const baseUrl = 'http://localhost:3000'
+    const baseUrl = 'https://alexautozakup'
     
     // Тест 1: Все заявки
     console.log('📋 Тест 1: Все заявки')

@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Eye, EyeOff, Loader2 } from "lucide-react"
+import { Eye, EyeOff, Loader2, RotateCcw } from "lucide-react"
 
 function LoginForm() {
   const router = useRouter()
@@ -21,6 +21,7 @@ function LoginForm() {
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
+  const [resetting, setResetting] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -57,6 +58,47 @@ function LoginForm() {
       console.error('Login error:', err)
       setError('Ошибка соединения с сервером')
       setLoading(false)
+    }
+  }
+
+  const handleResetForm = async () => {
+    if (!confirm('Вы уверены, что хотите перезагрузить форму? Это очистит все данные и куки сайта.')) {
+      return
+    }
+
+    setResetting(true)
+    
+    try {
+      // Очищаем все куки для текущего домена
+      document.cookie.split(";").forEach((cookie) => {
+        const eqPos = cookie.indexOf("=")
+        const name = eqPos > -1 ? cookie.substr(0, eqPos).trim() : cookie.trim()
+        // Удаляем куки для разных путей и доменов
+        document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`
+        document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=${window.location.hostname}`
+        document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=.${window.location.hostname}`
+      })
+
+      // Очищаем localStorage и sessionStorage
+      localStorage.clear()
+      sessionStorage.clear()
+
+      // Сбрасываем состояние формы
+      setEmail("")
+      setPassword("")
+      setError("")
+      setShowPassword(false)
+
+      // Показываем сообщение об успехе
+      alert('Форма успешно перезагружена, все данные очищены!')
+      
+      // Перезагружаем страницу для полной очистки
+      window.location.reload()
+    } catch (err) {
+      console.error('Reset error:', err)
+      setError('Ошибка при перезагрузке формы')
+    } finally {
+      setResetting(false)
     }
   }
 
@@ -117,16 +159,39 @@ function LoginForm() {
         )}
       </Button>
 
-      <div className="text-center">
+      <div className="text-center space-y-2">
         <Button
           variant="link"
           className="text-sm"
           type="button"
-          disabled={loading}
+          disabled={loading || resetting}
           onClick={() => router.push('/reset-password')}
         >
           Забыли пароль?
         </Button>
+        
+        <div className="pt-2">
+          <Button
+            variant="outline"
+            size="sm"
+            type="button"
+            disabled={loading || resetting}
+            onClick={handleResetForm}
+            className="text-xs text-muted-foreground hover:text-destructive"
+          >
+            {resetting ? (
+              <>
+                <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                Перезагрузка...
+              </>
+            ) : (
+              <>
+                <RotateCcw className="mr-2 h-3 w-3" />
+                Перезагрузить форму
+              </>
+            )}
+          </Button>
+        </div>
       </div>
     </form>
   )

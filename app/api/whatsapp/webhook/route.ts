@@ -314,7 +314,7 @@ async function handleDocumentMessage(messageData: any, chatId: string, requestId
     
     // Отправляем на обработку в отдельный API
     console.log(`📤 [${requestId}] Отправляем документ на обработку в process-document API`)
-    console.log(`📤 [${requestId}] URL: ${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/whatsapp/webhook/process-document`)
+    console.log(`📤 [${requestId}] URL: ${process.env.NEXT_PUBLIC_APP_URL || 'https://alexautozakup'}/api/whatsapp/webhook/process-document`)
     console.log(`📤 [${requestId}] Данные:`, {
       chatId,
       fileName,
@@ -324,7 +324,7 @@ async function handleDocumentMessage(messageData: any, chatId: string, requestId
     })
     
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/whatsapp/webhook/process-document`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://alexautozakup'}/api/whatsapp/webhook/process-document`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

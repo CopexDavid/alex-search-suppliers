@@ -1,5 +1,7 @@
 // API для экспорта логов аудита
 import { NextRequest, NextResponse } from 'next/server'
+
+export const dynamic = 'force-dynamic'
 import { requireAuth } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 

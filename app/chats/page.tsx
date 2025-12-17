@@ -35,6 +35,7 @@ import {
   RefreshCw,
   Link,
   LinkIcon,
+  Plus,
 } from "lucide-react"
 import { MessageLogsDialog } from "@/components/message-logs-dialog"
 
@@ -123,6 +124,12 @@ export default function ChatsPage() {
   const [linkingRequest, setLinkingRequest] = useState(false)
   const [currentChatPositions, setCurrentChatPositions] = useState<string[]>([]) // Текущие привязки к позициям
   const [unlinkingPosition, setUnlinkingPosition] = useState<string | null>(null)
+  
+  // Состояния для создания нового чата
+  const [showCreateChatDialog, setShowCreateChatDialog] = useState(false)
+  const [newChatPhone, setNewChatPhone] = useState("")
+  const [newChatName, setNewChatName] = useState("")
+  const [creatingChat, setCreatingChat] = useState(false)
 
   // Загрузка чатов
   const loadChats = async () => {
@@ -145,6 +152,103 @@ export default function ChatsPage() {
       console.error('Error loading chats:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Функция для форматирования номера телефона
+  const formatPhoneNumber = (value: string, forInput = false) => {
+    // Если это для отображения (не для ввода), просто добавляем + если нужно
+    if (!forInput) {
+      return value.startsWith('+') ? value : `+${value}`
+    }
+    
+    // Для ввода - полное форматирование
+    // Удаляем все символы кроме цифр
+    const numbers = value.replace(/\D/g, '')
+    
+    // Если начинается с 8, заменяем на 7
+    let formattedNumbers = numbers
+    if (numbers.startsWith('8')) {
+      formattedNumbers = '7' + numbers.slice(1)
+    }
+    
+    // Форматируем в вид +7 (747) 123-33-23
+    if (formattedNumbers.length >= 1 && formattedNumbers.startsWith('7')) {
+      let formatted = '+7'
+      if (formattedNumbers.length > 1) {
+        formatted += ' (' + formattedNumbers.slice(1, 4)
+        if (formattedNumbers.length > 4) {
+          formatted += ') ' + formattedNumbers.slice(4, 7)
+          if (formattedNumbers.length > 7) {
+            formatted += '-' + formattedNumbers.slice(7, 9)
+            if (formattedNumbers.length > 9) {
+              formatted += '-' + formattedNumbers.slice(9, 11)
+            }
+          }
+        }
+      }
+      return formatted
+    }
+    
+    return value
+  }
+
+  // Создание нового чата
+  const createNewChat = async () => {
+    if (!newChatPhone.trim() || !newChatName.trim()) {
+      alert('Пожалуйста, заполните все поля')
+      return
+    }
+
+    // Извлекаем только цифры из номера телефона
+    const phoneDigits = newChatPhone.replace(/\D/g, '')
+    
+    // Проверяем формат номера (должен начинаться с 7 и содержать 11 цифр)
+    if (!phoneDigits.startsWith('7') || phoneDigits.length !== 11) {
+      alert('Пожалуйста, введите корректный номер телефона в формате +7 (747) 123-33-23')
+      return
+    }
+
+    try {
+      setCreatingChat(true)
+      
+      const response = await fetch('/api/chats', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          phoneNumber: '+' + phoneDigits,
+          contactName: newChatName.trim()
+        })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        console.log('Чат создан:', data.data)
+        
+        // Очищаем форму
+        setNewChatPhone('')
+        setNewChatName('')
+        setShowCreateChatDialog(false)
+        
+        // Обновляем список чатов
+        await loadChats()
+        
+        // Выбираем созданный чат
+        setSelectedChat(data.data.id)
+        
+        alert('Чат успешно создан!')
+      } else {
+        const errorData = await response.json()
+        alert(errorData.error || 'Ошибка при создании чата')
+      }
+    } catch (error) {
+      console.error('Error creating chat:', error)
+      alert('Ошибка при создании чата')
+    } finally {
+      setCreatingChat(false)
     }
   }
 
@@ -452,9 +556,6 @@ export default function ChatsPage() {
     })
   }
 
-  const formatPhoneNumber = (phone: string) => {
-    return phone.startsWith('+') ? phone : `+${phone}`
-  }
 
   const getInitials = (name?: string, phone?: string) => {
     if (name && name !== phone) {
@@ -844,6 +945,15 @@ export default function ChatsPage() {
                   <Button
                     variant="ghost"
                     size="sm"
+                    onClick={() => setShowCreateChatDialog(true)}
+                    className="h-8 w-8 p-0"
+                    title="Создать новый чат"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => {
                       loadChats()
                       if (selectedChat) {
@@ -1139,6 +1249,68 @@ export default function ChatsPage() {
                   </>
                 ) : (
                   'Привязать'
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Диалог создания нового чата */}
+      <Dialog open={showCreateChatDialog} onOpenChange={setShowCreateChatDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Создать новый чат</DialogTitle>
+            <DialogDescription>
+              Введите номер телефона и имя контакта для создания нового чата
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="phone">Номер телефона</Label>
+              <Input
+                id="phone"
+                placeholder="+7 (747) 123-33-23"
+                value={newChatPhone}
+                onChange={(e) => setNewChatPhone(formatPhoneNumber(e.target.value, true))}
+                maxLength={18} // +7 (747) 123-33-23 = 18 символов
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Формат: +7 (747) 123-33-23
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="name">Имя контакта</Label>
+              <Input
+                id="name"
+                placeholder="Введите имя контакта"
+                value={newChatName}
+                onChange={(e) => setNewChatName(e.target.value)}
+              />
+            </div>
+            <div className="flex justify-end space-x-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowCreateChatDialog(false)
+                  setNewChatPhone('')
+                  setNewChatName('')
+                }}
+                disabled={creatingChat}
+              >
+                Отмена
+              </Button>
+              <Button
+                onClick={createNewChat}
+                disabled={creatingChat || !newChatPhone.trim() || !newChatName.trim()}
+              >
+                {creatingChat ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Создание...
+                  </>
+                ) : (
+                  'Создать чат'
                 )}
               </Button>
             </div>

@@ -36,6 +36,7 @@ import {
 import Link from "next/link"
 import { RequestEditDialog } from "@/components/request-edit-dialog"
 import { RequestDeleteDialog } from "@/components/request-delete-dialog"
+import { SearchLogsDialog } from "@/components/search-logs-dialog"
 
 interface Position {
   id: string
@@ -155,14 +156,31 @@ export default function RequestDetailPage() {
     setSearchProgress("Запуск автоматического поиска...")
 
     try {
+      // Добавляем timeout для запроса
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 300000) // 5 минут timeout
+
       const response = await fetch(`/api/requests/${requestId}/search`, {
         method: "POST",
         credentials: "include",
+        signal: controller.signal
       })
 
+      clearTimeout(timeoutId)
+
       if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error || "Ошибка при поиске")
+        // Проверяем, не HTML ли это вместо JSON
+        const contentType = response.headers.get('content-type')
+        if (contentType && contentType.includes('text/html')) {
+          throw new Error(`Сервер вернул ошибку ${response.status}. Возможно, превышено время ожидания.`)
+        }
+        
+        try {
+          const data = await response.json()
+          throw new Error(data.error || `Ошибка сервера: ${response.status}`)
+        } catch (jsonError) {
+          throw new Error(`Ошибка сервера: ${response.status}. Не удалось обработать ответ.`)
+        }
       }
 
       const data = await response.json()
@@ -178,7 +196,15 @@ export default function RequestDetailPage() {
       console.error("Search error:", err)
       setSearchProgress("")
       setSearching(false)
-      alert(err.message || "Ошибка при поиске поставщиков")
+      
+      let errorMessage = "Ошибка при поиске поставщиков"
+      if (err.name === 'AbortError') {
+        errorMessage = "Поиск занял слишком много времени и был прерван. Попробуйте еще раз."
+      } else if (err.message) {
+        errorMessage = err.message
+      }
+      
+      alert(errorMessage)
     }
   }
 
@@ -189,14 +215,31 @@ export default function RequestDetailPage() {
     setSearchingPositions(prev => ({ ...prev, [positionId]: true }))
 
     try {
+      // Добавляем timeout для запроса
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 300000) // 5 минут timeout
+
       const response = await fetch(`/api/requests/${requestId}/positions/${positionId}/search`, {
         method: "POST",
         credentials: "include",
+        signal: controller.signal
       })
 
+      clearTimeout(timeoutId)
+
       if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error || "Ошибка при поиске")
+        // Проверяем, не HTML ли это вместо JSON
+        const contentType = response.headers.get('content-type')
+        if (contentType && contentType.includes('text/html')) {
+          throw new Error(`Сервер вернул ошибку ${response.status}. Возможно, превышено время ожидания.`)
+        }
+        
+        try {
+          const data = await response.json()
+          throw new Error(data.error || `Ошибка сервера: ${response.status}`)
+        } catch (jsonError) {
+          throw new Error(`Ошибка сервера: ${response.status}. Не удалось обработать ответ.`)
+        }
       }
 
       const data = await response.json()
@@ -206,7 +249,15 @@ export default function RequestDetailPage() {
       await loadRequest()
     } catch (err: any) {
       console.error("Search error:", err)
-      alert(err.message || "Ошибка при поиске поставщиков")
+      
+      let errorMessage = "Ошибка при поиске поставщиков"
+      if (err.name === 'AbortError') {
+        errorMessage = "Поиск занял слишком много времени и был прерван. Попробуйте еще раз."
+      } else if (err.message) {
+        errorMessage = err.message
+      }
+      
+      alert(errorMessage)
     } finally {
       setSearchingPositions(prev => ({ ...prev, [positionId]: false }))
     }
@@ -631,23 +682,33 @@ export default function RequestDetailPage() {
               </span>
             </CardTitle>
             {request.positions.length > 0 && (
-              <Button 
-                onClick={handleAutoSearch} 
-                disabled={searching}
-                size="sm"
-              >
-                {searching ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Поиск...
-                  </>
-                ) : (
-                  <>
-                    <Search className="mr-2 h-4 w-4" />
-                    {(request.suppliers?.length || 0) > 0 ? "Обновить поиск" : "Найти поставщиков"}
-                  </>
-                )}
-              </Button>
+              <div className="flex items-center space-x-2">
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => alert('Функция логов поиска временно недоступна')}
+                >
+                  <FileText className="mr-2 h-4 w-4" />
+                  Логи поиска
+                </Button>
+                <Button 
+                  onClick={handleAutoSearch} 
+                  disabled={searching}
+                  size="sm"
+                >
+                  {searching ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Поиск...
+                    </>
+                  ) : (
+                    <>
+                      <Search className="mr-2 h-4 w-4" />
+                      {(request.suppliers?.length || 0) > 0 ? "Обновить поиск" : "Найти поставщиков"}
+                    </>
+                  )}
+                </Button>
+              </div>
             )}
           </div>
         </CardHeader>

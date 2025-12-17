@@ -208,10 +208,45 @@ const openaiService = new OpenAIService()
 
 export default openaiService
 
-// Экспорт простого OpenAI клиента для парсера
-export const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || 'sk-your-openai-api-key-here',
-  defaultHeaders: {
-    'OpenAI-Beta': 'assistants=v2'
+// Функция для получения OpenAI клиента с проверкой настроек из БД
+async function getOpenAIClient(): Promise<OpenAI> {
+  let apiKey = process.env.OPENAI_API_KEY
+  
+  // Если ключ не задан или дефолтный, проверяем БД
+  if (!apiKey || apiKey === 'sk-your-key-here' || apiKey === 'sk-your-openai-api-key-here') {
+    try {
+      const apiKeySetting = await prisma.systemSetting.findUnique({
+        where: { key: 'openai_api_key' }
+      })
+      
+      if (apiKeySetting?.value) {
+        apiKey = apiKeySetting.value
+      }
+    } catch (error) {
+      console.error('❌ Ошибка загрузки OpenAI ключа из БД:', error)
+    }
   }
-})
+  
+  if (!apiKey || apiKey === 'sk-your-key-here' || apiKey === 'sk-your-openai-api-key-here') {
+    throw new Error('OpenAI API key не настроен. Установите ключ в настройках системы или переменной окружения OPENAI_API_KEY')
+  }
+  
+  return new OpenAI({
+    apiKey: apiKey,
+    defaultHeaders: {
+      'OpenAI-Beta': 'assistants=v2'
+    }
+  })
+}
+
+// Экспорт простого OpenAI клиента для парсера (создается динамически)
+export const openai = {
+  chat: {
+    completions: {
+      create: async (...args: Parameters<OpenAI['chat']['completions']['create']>) => {
+        const client = await getOpenAIClient()
+        return client.chat.completions.create(...args)
+      }
+    }
+  }
+} as OpenAI

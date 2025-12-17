@@ -1,7 +1,7 @@
 # Dockerfile для Next.js приложения ALEX
 FROM node:18-alpine
 
-# Установка необходимых зависимостей для Prisma и Puppeteer
+# Установка необходимых зависимостей для Prisma, Puppeteer и canvas
 RUN apk add --no-cache \
     libc6-compat \
     python3 \
@@ -13,7 +13,13 @@ RUN apk add --no-cache \
     harfbuzz \
     ca-certificates \
     ttf-freefont \
-    netcat-openbsd
+    netcat-openbsd \
+    pixman \
+    cairo-dev \
+    pkgconfig \
+    pango-dev \
+    jpeg-dev \
+    giflib-dev
 
 # Установка переменных окружения для Puppeteer
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true

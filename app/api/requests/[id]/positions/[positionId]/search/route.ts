@@ -8,6 +8,7 @@ import { YandexSearchService, convertYandexResults } from '@/services/yandexSear
 import { SerpApiService, convertSerpApiResults } from '@/services/serpApiSearch'
 import { filterByRegion, SearchRegion } from '@/utils/regionFilter'
 import { filterByCategories, enhanceQueryWithCategories } from '@/utils/categoryMapping'
+import { searchCache } from '@/lib/search-cache'
 
 const SEARCH_ENGINE_ID = process.env.GOOGLE_SEARCH_ENGINE_ID || 'd7065ea5c59764932'
 
@@ -239,7 +240,17 @@ export async function POST(
     // Генерируем варианты запросов с учетом региона поиска и категорий
     const searchRegion = position.request.searchRegion || 'KAZAKHSTAN';
     const enableCategorization = position.request.enableCategorization || false;
-    const categories = position.request.categories ? JSON.parse(position.request.categories) : [];
+    
+    let categories: string[] = [];
+    if (position.request.categories) {
+      try {
+        categories = JSON.parse(position.request.categories);
+      } catch (error) {
+        console.warn('Failed to parse categories JSON:', error);
+        console.warn('Categories string:', position.request.categories);
+        categories = [];
+      }
+    }
     
     let searchQueries = buildSearchQuery(position.name, searchRegion);
     
@@ -253,6 +264,71 @@ export async function POST(
     console.log(`🎯 Generated ${searchQueries.length} search variations for region ${searchRegion}:`);
     searchQueries.forEach((q, i) => console.log(`   ${i + 1}. "${q}"`));
     console.log('');
+    
+    // Проверяем кэш перед началом поиска
+    const cacheKey = `${position.name}_${searchRegion}_${categories.join(',')}`;
+    const cachedResults = searchCache.get(position.name, searchRegion, categories);
+    
+    if (cachedResults && cachedResults.length > 0) {
+      console.log(`🎯 Using cached results for position "${position.name}" (${cachedResults.length} results)`);
+      
+      // Сохраняем поставщиков из кэша
+      const savedSuppliers = [];
+      for (const result of cachedResults) {
+        try {
+          const supplier = await prisma.supplier.create({
+            data: {
+              name: result.companyName || result.title || 'Неизвестная компания',
+              website: result.url,
+              phone: result.phone || '',
+              email: result.email || '',
+              whatsapp: result.whatsapp || '',
+              address: result.address || '',
+              description: result.snippet || '',
+              foundVia: 'cache',
+              searchRelevance: result.searchRelevance || 0.5,
+              rating: 3,
+              isActive: true,
+              requests: {
+                connect: { id: requestId }
+              }
+            }
+          });
+          savedSuppliers.push(supplier);
+        } catch (error) {
+          console.error('Error saving cached supplier:', error);
+        }
+      }
+      
+      // Логируем результат из кэша
+      await prisma.auditLog.create({
+        data: {
+          userId: user.id,
+          action: 'supplier_search_completed_from_cache',
+          entityType: 'Position',
+          entityId: positionId,
+          details: JSON.stringify({
+            positionId,
+            positionName: position.name,
+            suppliersFound: savedSuppliers.length,
+            searchRegion,
+            enableCategorization,
+            categories: categories.length > 0 ? categories : undefined,
+            source: 'cache'
+          })
+        }
+      });
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          positionId,
+          positionName: position.name,
+          suppliersFound: savedSuppliers.length,
+          suppliers: savedSuppliers
+        }
+      });
+    }
     
     // ПАРСИМ HTML НАПРЯМУЮ из веб-интерфейса CSE (как в основном поиске)
     const maxQueries = Math.min(10, searchQueries.length); // Больше запросов!
@@ -741,6 +817,36 @@ export async function POST(
       }
     })
     
+    // Логируем результат поиска в аудит
+    await prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: 'supplier_search_completed',
+        entityType: 'Position',
+        entityId: positionId,
+        details: JSON.stringify({
+          positionId,
+          positionName: position.name,
+          searchQueries,
+          resultsFound: allResults.size,
+          suppliersFound: savedSuppliers.length,
+          googleResults: allResults.size, // Приблизительно
+          yandexResults: 0, // Пока не используем Yandex
+          filteredResults: filteredResults.length,
+          contactsParsed: resultsArray.length,
+          searchRegion,
+          enableCategorization,
+          categories: categories.length > 0 ? categories : undefined
+        })
+      }
+    })
+
+    // Сохраняем результаты в кэш для будущих поисков
+    if (filteredResults.length > 0) {
+      searchCache.set(position.name, searchRegion, categories, filteredResults, 30 * 60 * 1000); // 30 минут
+      console.log(`💾 Cached ${filteredResults.length} results for future searches`);
+    }
+
     return NextResponse.json({
       success: true,
       data: {
@@ -774,6 +880,29 @@ export async function POST(
        errorMessage = 'Ошибка авторизации'
      } else if (error.message) {
        errorMessage = error.message
+     }
+     
+     // Логируем ошибку в аудит
+     try {
+       await prisma.auditLog.create({
+         data: {
+           userId: user.id,
+           action: 'supplier_search_error',
+           entityType: 'Position',
+           entityId: positionId,
+           details: JSON.stringify({
+             positionId,
+             error: errorMessage,
+             errorType: error.name,
+             searchQueries: searchQueries || [],
+             searchRegion,
+             enableCategorization,
+             categories: categories || []
+           })
+         }
+       })
+     } catch (auditError) {
+       console.error('Failed to log error to audit:', auditError)
      }
      
      return NextResponse.json(

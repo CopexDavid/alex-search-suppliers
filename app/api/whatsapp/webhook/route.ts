@@ -1,6 +1,7 @@
 // Webhook для получения входящих сообщений от Whapi.Cloud
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
+import { normalizePhoneNumber, getPhoneNumberVariants } from '@/lib/utils'
 
 /**
  * POST /api/whatsapp/webhook
@@ -49,6 +50,67 @@ export async function POST(request: NextRequest) {
 }
 
 /**
+ * Находит существующий чат по номеру телефона с учётом нормализации
+ * Ищет по всем возможным форматам номера
+ */
+async function findExistingChatByPhone(phoneNumber: string, requestId: string) {
+  const phoneVariants = getPhoneNumberVariants(phoneNumber)
+  console.log(`🔍 [${requestId}] Ищем чат по вариантам номера:`, phoneVariants)
+  
+  // Ищем существующий чат по любому из вариантов номера
+  const existingChat = await prisma.chat.findFirst({
+    where: {
+      phoneNumber: { in: phoneVariants }
+    },
+    include: {
+      request: true,
+      positionChats: {
+        include: {
+          position: true
+        }
+      }
+    }
+  })
+  
+  if (existingChat) {
+    console.log(`✅ [${requestId}] Найден существующий чат: ${existingChat.id}, requestId: ${existingChat.requestId}`)
+  }
+  
+  return existingChat
+}
+
+/**
+ * Ищет заявку по номеру телефона (если мы раньше писали на этот номер)
+ */
+async function findRequestByPhone(phoneNumber: string, requestId: string) {
+  const phoneVariants = getPhoneNumberVariants(phoneNumber)
+  
+  // Ищем PositionChat с этим номером телефона
+  const positionChat = await prisma.positionChat.findFirst({
+    where: {
+      chat: {
+        phoneNumber: { in: phoneVariants }
+      }
+    },
+    include: {
+      position: {
+        include: {
+          request: true
+        }
+      },
+      chat: true
+    }
+  })
+  
+  if (positionChat) {
+    console.log(`✅ [${requestId}] Найдена заявка через positionChat: ${positionChat.position.request.requestNumber}`)
+    return positionChat.position.request
+  }
+  
+  return null
+}
+
+/**
  * Обрабатывает одно сообщение от Whapi.Cloud
  */
 async function processMessage(messageData: any, requestId: string) {
@@ -57,8 +119,8 @@ async function processMessage(messageData: any, requestId: string) {
     
     // Извлекаем данные из структуры Whapi.Cloud
     const messageId = messageData.id
-    const phoneNumber = messageData.from
-    const chatId = messageData.chat_id
+    const rawPhoneNumber = messageData.from
+    const chatIdFromWhapi = messageData.chat_id
     const displayText = messageData.text?.body || messageData.document?.caption || messageData.document?.filename || ''
     const messageType = messageData.type || 'text'
     const timestamp = messageData.timestamp
@@ -71,32 +133,73 @@ async function processMessage(messageData: any, requestId: string) {
       return
     }
     
+    // Нормализуем номер телефона
+    const normalizedPhone = normalizePhoneNumber(rawPhoneNumber)
+    const phoneNumber = normalizedPhone ? '+' + normalizedPhone : rawPhoneNumber
+    
     // Для документов используем название файла или caption как текст сообщения
     const finalDisplayText = displayText || `[${messageType.toUpperCase()}]`
     console.log(`📨 [${requestId}] Входящее сообщение от ${phoneNumber} (${senderName}): "${finalDisplayText}"`)
+    console.log(`📨 [${requestId}] Нормализованный номер: ${normalizedPhone}`)
     
     if (phoneNumber) {
       try {
-        // Находим или создаем чат с помощью upsert
-        const chat = await prisma.chat.upsert({
-          where: { phoneNumber },
-          create: {
-            phoneNumber,
-            contactName: senderName || phoneNumber,
-            lastMessage: finalDisplayText,
-            lastMessageAt: timestamp ? new Date(timestamp * 1000) : new Date(),
-            status: 'ACTIVE',
-            unreadCount: 1
-          },
-          update: {
-            lastMessage: finalDisplayText,
-            lastMessageAt: timestamp ? new Date(timestamp * 1000) : new Date(),
-            unreadCount: { increment: 1 },
-            ...(senderName && { contactName: senderName })
-          }
-        })
+        // 1. Ищем существующий чат по номеру (с учётом всех вариантов)
+        let chat = await findExistingChatByPhone(phoneNumber, requestId)
         
-        console.log(`✅ [${requestId}] Чат обновлен для ${phoneNumber} (${senderName})`)
+        // 2. Если чат найден - обновляем его
+        if (chat) {
+          chat = await prisma.chat.update({
+            where: { id: chat.id },
+            data: {
+              lastMessage: finalDisplayText,
+              lastMessageAt: timestamp ? new Date(timestamp * 1000) : new Date(),
+              unreadCount: { increment: 1 },
+              status: 'ACTIVE',
+              ...(senderName && !chat.contactName && { contactName: senderName })
+            },
+            include: {
+              request: true,
+              positionChats: {
+                include: {
+                  position: true
+                }
+              }
+            }
+          })
+          console.log(`✅ [${requestId}] Существующий чат обновлён: ${chat.id}, заявка: ${chat.requestId || 'не привязан'}`)
+        } else {
+          // 3. Чат не найден - создаём новый, но пробуем найти связанную заявку
+          const linkedRequest = await findRequestByPhone(phoneNumber, requestId)
+          
+          chat = await prisma.chat.create({
+            data: {
+              phoneNumber,
+              contactName: senderName || phoneNumber,
+              lastMessage: finalDisplayText,
+              lastMessageAt: timestamp ? new Date(timestamp * 1000) : new Date(),
+              status: 'ACTIVE',
+              unreadCount: 1,
+              // Автоматически привязываем к заявке если нашли
+              ...(linkedRequest && { requestId: linkedRequest.id })
+            },
+            include: {
+              request: true,
+              positionChats: {
+                include: {
+                  position: true
+                }
+              }
+            }
+          })
+          
+          console.log(`✅ [${requestId}] Создан новый чат: ${chat.id}`)
+          if (linkedRequest) {
+            console.log(`🔗 [${requestId}] Чат автоматически привязан к заявке: ${linkedRequest.requestNumber}`)
+          } else {
+            console.log(`⚠️ [${requestId}] Чат создан без привязки к заявке (не найдена по номеру)`)
+          }
+        }
         
         // Сохраняем сообщение в чат
         const chatMessage = await prisma.chatMessage.create({
@@ -122,14 +225,14 @@ async function processMessage(messageData: any, requestId: string) {
             phoneNumber,
             message: finalDisplayText,
             messageType: messageType || 'text',
-            chatId: chatId || phoneNumber,
+            chatId: chatIdFromWhapi || phoneNumber,
             timestamp: timestamp ? new Date(timestamp * 1000) : new Date(),
             source: 'whapi',
             rawData: messageData
           }
         })
         
-        console.log(`✅ [${requestId}] Сообщение сохранено в чат и базу данных`)
+        console.log(`✅ [${requestId}] Сообщение сохранено в чат ${chat.id}`)
         
         // Специальная обработка документов
         if (messageType === 'document' && messageData.document) {
@@ -313,18 +416,23 @@ async function handleDocumentMessage(messageData: any, chatId: string, requestId
     console.log(`📝 [${requestId}] Документ будет скачан и распарсен в process-document API`)
     
     // Отправляем на обработку в отдельный API
+    // С Auto Download в document может быть прямая ссылка (link)
+    const documentLink = document.link || null
+    const documentId = document.id || null
+    
     console.log(`📤 [${requestId}] Отправляем документ на обработку в process-document API`)
-    console.log(`📤 [${requestId}] URL: ${process.env.NEXT_PUBLIC_APP_URL || 'https://alexautozakup'}/api/whatsapp/webhook/process-document`)
+    console.log(`📤 [${requestId}] URL: ${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/whatsapp/webhook/process-document`)
     console.log(`📤 [${requestId}] Данные:`, {
       chatId,
       fileName,
       documentTextLength: documentText?.length || 0,
       hasMessageData: !!messageData,
-      documentId: messageData.document?.id
+      documentId,
+      documentLink: documentLink ? 'есть прямая ссылка' : 'нет ссылки'
     })
-    
+
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://alexautozakup'}/api/whatsapp/webhook/process-document`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/whatsapp/webhook/process-document`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -333,7 +441,9 @@ async function handleDocumentMessage(messageData: any, chatId: string, requestId
           chatId,
           messageData,
           documentText,
-          fileName
+          fileName,
+          documentLink,  // Прямая ссылка на файл (если есть)
+          documentId     // ID документа в Whapi
         })
       })
       

@@ -47,11 +47,10 @@ export async function GET(
           }
         },
         commercialOffers: {
-          where: {
-            confidence: { gte: 70 },
-            needsManualReview: false
-          },
-          orderBy: { totalPrice: 'asc' } // Сортируем по цене
+          orderBy: [
+            { totalPrice: 'asc' }, // Сортируем по цене
+            { confidence: 'desc' } // Потом по уверенности
+          ]
         },
         suppliers: {
           include: {

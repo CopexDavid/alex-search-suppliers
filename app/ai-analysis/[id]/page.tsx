@@ -20,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   Brain,
   CheckCircle,
+  CheckCircle2,
   Clock,
   Download,
   FileText,
@@ -41,7 +42,10 @@ import {
   ArrowLeft,
   Save,
   Zap,
+  Upload,
+  File,
 } from "lucide-react"
+import { Input } from "@/components/ui/input"
 import Link from "next/link"
 import { useParams } from "next/navigation"
 
@@ -115,6 +119,98 @@ export default function RequestAnalysisPage() {
   const [decisionReason, setDecisionReason] = useState<string>("")
   const [finalizing, setFinalizing] = useState(false)
   const [showFinalizeDialog, setShowFinalizeDialog] = useState(false)
+  
+  // Состояние для импорта КП из чата
+  const [showImportDialog, setShowImportDialog] = useState(false)
+  const [chatDocuments, setChatDocuments] = useState<any[]>([])
+  const [loadingDocuments, setLoadingDocuments] = useState(false)
+  const [selectedDocument, setSelectedDocument] = useState<any>(null)
+  const [importCompany, setImportCompany] = useState("")
+  const [importPrice, setImportPrice] = useState("")
+  const [importing, setImporting] = useState(false)
+
+  // Загрузка документов из чатов
+  const loadChatDocuments = async () => {
+    try {
+      setLoadingDocuments(true)
+      const response = await fetch(`/api/requests/${requestId}/chat-documents`, {
+        credentials: 'include'
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setChatDocuments(data.data.documents || [])
+        console.log('📄 Загружены документы из чатов:', data.data.documents?.length || 0)
+      } else {
+        console.error('❌ Ошибка загрузки документов:', response.status)
+      }
+    } catch (error) {
+      console.error('Error loading chat documents:', error)
+    } finally {
+      setLoadingDocuments(false)
+    }
+  }
+
+  // Импорт КП из чата
+  const importFromChat = async () => {
+    if (!selectedDocument || !selectedPosition) return
+    
+    setImporting(true)
+    try {
+      const response = await fetch(
+        `/api/requests/${requestId}/positions/${selectedPosition.id}/import-from-chat`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            messageId: selectedDocument.messageId,
+            chatId: selectedDocument.chatId,
+            company: importCompany || selectedDocument.chatName,
+            totalPrice: importPrice ? parseFloat(importPrice) : null
+          })
+        }
+      )
+      
+      if (response.ok) {
+        const data = await response.json()
+        const offer = data.data.commercialOffer
+        
+        // Формируем сообщение с результатами парсинга
+        let message = `✅ КП успешно импортировано!\n\n`
+        message += `📄 Файл: ${offer.fileName}\n`
+        message += `🏢 Компания: ${offer.company || 'Не определена'}\n`
+        message += `💰 Сумма: ${offer.totalPrice ? `${offer.totalPrice.toLocaleString()} ${offer.currency}` : 'Не определена'}\n`
+        message += `📊 Уверенность: ${offer.confidence}%\n`
+        
+        if (offer.needsManualReview) {
+          message += `\n⚠️ Требуется ручная проверка`
+        }
+        
+        alert(message)
+        setShowImportDialog(false)
+        setSelectedDocument(null)
+        setImportCompany("")
+        setImportPrice("")
+        // Перезагружаем заявку
+        await loadRequest()
+      } else {
+        const errorData = await response.json()
+        alert(`❌ Ошибка: ${errorData.error}`)
+      }
+    } catch (error) {
+      console.error('Error importing from chat:', error)
+      alert('❌ Ошибка при импорте КП')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  // Открыть диалог импорта
+  const openImportDialog = async () => {
+    setShowImportDialog(true)
+    await loadChatDocuments()
+  }
 
   // Загрузка заявки
   const loadRequest = async () => {
@@ -416,15 +512,46 @@ export default function RequestAnalysisPage() {
               <CardTitle>Позиции для анализа</CardTitle>
             </CardHeader>
             <CardContent>
+              {/* Прогресс по позициям */}
+              {(() => {
+                const completedCount = request.positions.filter(p => p.finalChoice || p.searchStatus === 'USER_DECIDED').length
+                const totalCount = request.positions.length
+                return (
+                  <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-blue-800">
+                        Прогресс выбора поставщиков
+                      </span>
+                      <span className="text-sm text-blue-600">
+                        {completedCount} / {totalCount}
+                      </span>
+                    </div>
+                    <div className="w-full bg-blue-200 rounded-full h-2">
+                      <div 
+                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${(completedCount / totalCount) * 100}%` }}
+                      />
+                    </div>
+                    {completedCount === totalCount && (
+                      <p className="text-xs text-green-600 mt-2">✅ Все позиции завершены!</p>
+                    )}
+                  </div>
+                )
+              })()}
+              
               <div className="space-y-2">
                 {request.positions.map((position) => {
                   const offers = getOffersForPosition(position.id)
+                  const isCompleted = position.finalChoice || position.searchStatus === 'USER_DECIDED'
+                  
                   return (
                     <div
                       key={position.id}
                       className={`p-3 border rounded-lg cursor-pointer transition-colors ${
                         selectedPosition?.id === position.id
                           ? 'border-blue-500 bg-blue-50'
+                          : isCompleted
+                          ? 'border-green-500 bg-green-50'
                           : 'border-gray-200 hover:border-gray-300'
                       }`}
                       onClick={() => {
@@ -434,15 +561,30 @@ export default function RequestAnalysisPage() {
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex-1">
-                          <h4 className="font-medium text-sm">{position.name}</h4>
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-medium text-sm">{position.name}</h4>
+                            {isCompleted && (
+                              <CheckCircle2 className="h-4 w-4 text-green-600" />
+                            )}
+                          </div>
                           <p className="text-xs text-muted-foreground">
                             {position.quantity} {position.unit}
                           </p>
+                          {isCompleted && position.finalChoice && (
+                            <p className="text-xs text-green-700 mt-1 truncate max-w-[200px]" title={position.finalChoice}>
+                              {position.finalChoice}
+                            </p>
+                          )}
                         </div>
-                        <div className="text-right">
+                        <div className="text-right flex flex-col gap-1">
                           <Badge variant={offers.length > 0 ? "default" : "secondary"} className="text-xs">
                             {offers.length} КП
                           </Badge>
+                          {isCompleted && (
+                            <Badge variant="outline" className="text-xs bg-green-100 text-green-700 border-green-300">
+                              Выбрано
+                            </Badge>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -471,6 +613,14 @@ export default function RequestAnalysisPage() {
                       </CardDescription>
                     </div>
                     <div className="flex space-x-2">
+                      <Button
+                        onClick={openImportDialog}
+                        variant="outline"
+                        className="min-w-[140px]"
+                      >
+                        <Upload className="mr-2 h-4 w-4" />
+                        Из чата
+                      </Button>
                       <Button
                         onClick={() => analyzeOffers(selectedPosition.id)}
                         disabled={analyzing || getOffersForPosition(selectedPosition.id).length === 0}
@@ -518,13 +668,50 @@ export default function RequestAnalysisPage() {
                     const offers = getOffersForPosition(selectedPosition.id)
                     const bestOffer = getBestOfferByPrice(offers)
                     
+                    // Получаем все КП заявки (для возможности привязки)
+                    const allOffers = request?.commercialOffers || []
+                    const unassignedOffers = allOffers.filter(o => !o.positionId || o.positionId !== selectedPosition.id)
+                    
                     if (offers.length === 0) {
                       return (
-                        <div className="text-center py-8">
-                          <MessageSquare className="mx-auto h-8 w-8 text-muted-foreground mb-2" />
-                          <p className="text-muted-foreground">
-                            Коммерческие предложения для этой позиции не получены
-                          </p>
+                        <div className="space-y-4">
+                          <div className="text-center py-4">
+                            <MessageSquare className="mx-auto h-8 w-8 text-muted-foreground mb-2" />
+                            <p className="text-muted-foreground mb-2">
+                              КП для этой позиции не получены
+                            </p>
+                          </div>
+                          
+                          {unassignedOffers.length > 0 && (
+                            <div className="border-t pt-4">
+                              <p className="text-sm font-medium mb-3">
+                                 Выберите КП из других или импортируйте новое:
+                              </p>
+                              <div className="space-y-2">
+                                {unassignedOffers.map((offer) => (
+                                  <div
+                                    key={offer.id}
+                                    className="p-3 border rounded-lg hover:bg-gray-50 flex items-center justify-between"
+                                  >
+                                    <div>
+                                      <p className="font-medium text-sm">{offer.company}</p>
+                                      <p className="text-xs text-muted-foreground">
+                                        {offer.totalPrice ? `${offer.totalPrice.toLocaleString()} ${offer.currency}` : 'Цена не определена'} • {offer.fileName}
+                                      </p>
+                                    </div>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => quickSelectSupplier(offer.id)}
+                                    >
+                                      <Zap className="mr-1 h-3 w-3" />
+                                      Выбрать
+                                    </Button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )
                     }
@@ -603,15 +790,31 @@ export default function RequestAnalysisPage() {
                                       Скачать
                                   </Button>
                                   )}
-                                  <Button 
-                                    variant="default" 
-                                    size="sm"
-                                    onClick={() => quickSelectSupplier(offer.id)}
-                                    className="bg-orange-600 hover:bg-orange-700"
-                                  >
-                                    <Zap className="mr-1 h-3 w-3" />
-                                    Выбрать
-                                  </Button>
+                                  {(() => {
+                                    const isCompleted = selectedPosition.finalChoice || selectedPosition.searchStatus === 'USER_DECIDED'
+                                    const isThisOfferSelected = selectedPosition.finalChoice?.includes(offer.company)
+                                    
+                                    if (isThisOfferSelected) {
+                                      return (
+                                        <Badge variant="default" className="bg-green-600">
+                                          <CheckCircle2 className="mr-1 h-3 w-3" />
+                                          Выбран
+                                        </Badge>
+                                      )
+                                    }
+                                    
+                                    return (
+                                      <Button 
+                                        variant="default" 
+                                        size="sm"
+                                        onClick={() => quickSelectSupplier(offer.id)}
+                                        className={isCompleted ? "bg-gray-600 hover:bg-gray-700" : "bg-orange-600 hover:bg-orange-700"}
+                                      >
+                                        <Zap className="mr-1 h-3 w-3" />
+                                        {isCompleted ? 'Изменить' : 'Выбрать'}
+                                      </Button>
+                                    )
+                                  })()}
                                 </div>
                               </div>
                             </div>
@@ -766,6 +969,177 @@ export default function RequestAnalysisPage() {
                 )}
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Диалог импорта КП из чата */}
+      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center">
+              <Upload className="mr-2 h-5 w-5" />
+              Импорт КП из чата
+            </DialogTitle>
+            <DialogDescription>
+              Выберите документ из чата для импорта как коммерческое предложение
+              {selectedPosition && ` для позиции "${selectedPosition.name}"`}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-y-auto space-y-4">
+            {loadingDocuments ? (
+              <div className="text-center py-8">
+                <Loader2 className="mx-auto h-8 w-8 animate-spin text-blue-600" />
+                <p className="mt-2 text-muted-foreground">Загрузка документов...</p>
+              </div>
+            ) : chatDocuments.length === 0 ? (
+              <div className="text-center py-8">
+                <File className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+                <p className="text-muted-foreground">Документы в чатах не найдены</p>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Привяжите чаты к заявке или дождитесь документов от поставщиков
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Выберите документ:</Label>
+                <div className="max-h-60 overflow-y-auto border rounded-lg">
+                  {chatDocuments.map((doc) => (
+                    <div
+                      key={doc.messageId}
+                      className={`p-3 border-b last:border-b-0 cursor-pointer hover:bg-gray-50 transition-colors ${
+                        selectedDocument?.messageId === doc.messageId
+                          ? 'bg-blue-50 border-blue-200'
+                          : ''
+                      }`}
+                      onClick={() => {
+                        setSelectedDocument(doc)
+                        setImportCompany(doc.chatName || '')
+                      }}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center space-x-3">
+                          <div className="flex-shrink-0">
+                            <FileText className="h-8 w-8 text-blue-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-sm">{doc.fileName}</p>
+                            <p className="text-xs text-muted-foreground">
+                              От: {doc.chatName || doc.chatPhone}
+                            </p>
+                            {doc.positionName && (
+                              <p className="text-xs text-blue-600">
+                                Позиция: {doc.positionName}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(doc.timestamp).toLocaleDateString('ru-RU')}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(doc.timestamp).toLocaleTimeString('ru-RU', {
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </p>
+                        </div>
+                      </div>
+                      {doc.caption && (
+                        <p className="text-xs text-muted-foreground mt-2 truncate">
+                          {doc.caption}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {selectedDocument && (
+              <div className="space-y-4 pt-4 border-t">
+                <div className="p-3 bg-blue-50 rounded-lg">
+                  <p className="text-sm font-medium text-blue-900">
+                    📄 {selectedDocument.fileName}
+                  </p>
+                  <p className="text-xs text-blue-700 mt-1">
+                    От: {selectedDocument.chatName}
+                  </p>
+                </div>
+                
+                <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                  <p className="text-sm text-green-800 flex items-center gap-2">
+                    <span>🤖</span>
+                    <span>Документ будет автоматически распарсен с помощью ИИ</span>
+                  </p>
+                  <p className="text-xs text-green-600 mt-1">
+                    Цена, позиции и условия будут извлечены автоматически
+                  </p>
+                </div>
+                
+                <div>
+                  <Label htmlFor="importCompany">Название компании (опционально)</Label>
+                  <Input
+                    id="importCompany"
+                    value={importCompany}
+                    onChange={(e) => setImportCompany(e.target.value)}
+                    placeholder={selectedDocument.chatName}
+                    className="mt-1"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Если не указать — будет взято из документа или чата
+                  </p>
+                </div>
+                
+                <div>
+                  <Label htmlFor="importPrice">Сумма вручную (если не распознается)</Label>
+                  <Input
+                    id="importPrice"
+                    type="number"
+                    value={importPrice}
+                    onChange={(e) => setImportPrice(e.target.value)}
+                    placeholder="Оставьте пустым для автоопределения"
+                    className="mt-1"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Обычно сумма определяется автоматически из документа
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end space-x-2 pt-4 border-t">
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowImportDialog(false)
+                setSelectedDocument(null)
+                setImportCompany("")
+                setImportPrice("")
+              }}
+              disabled={importing}
+            >
+              Отмена
+            </Button>
+            <Button 
+              onClick={importFromChat}
+              disabled={importing || !selectedDocument || !selectedPosition}
+            >
+              {importing ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Импорт...
+                </>
+              ) : (
+                <>
+                  <Upload className="mr-2 h-4 w-4" />
+                  Импортировать КП
+                </>
+              )}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

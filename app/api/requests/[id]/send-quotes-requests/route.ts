@@ -5,6 +5,7 @@ import prisma from '@/lib/prisma'
 import whapiService from '@/lib/whapi'
 import openaiService from '@/lib/openai'
 import { selectBestSuppliers, getSuppliersToContactCount } from '@/utils/supplierSelector'
+import { normalizePhoneNumber, getPhoneNumberVariants } from '@/lib/utils'
 
 /**
  * POST /api/requests/[id]/send-quotes-requests
@@ -142,23 +143,40 @@ export async function POST(
         }
 
         try {
-          // Находим или создаем чат с поставщиком
-          let chat = await prisma.chat.findUnique({
-            where: { phoneNumber: supplier.whatsapp }
+          // Нормализуем номер телефона для единообразия
+          const normalizedPhone = normalizePhoneNumber(supplier.whatsapp)
+          const phoneVariants = getPhoneNumberVariants(supplier.whatsapp)
+          
+          console.log(`📞 Поиск чата для ${supplier.name}: ${supplier.whatsapp} -> ${normalizedPhone}`)
+          
+          // Ищем чат по всем вариантам номера (с учётом разных форматов)
+          let chat = await prisma.chat.findFirst({
+            where: {
+              OR: phoneVariants.map(phone => ({ phoneNumber: phone }))
+            }
           })
 
           if (!chat) {
-            // Создаем новый чат
+            // Создаем новый чат с нормализованным номером
             chat = await prisma.chat.create({
               data: {
-                phoneNumber: supplier.whatsapp,
+                phoneNumber: normalizedPhone, // Всегда сохраняем нормализованный номер
                 contactName: supplier.name,
                 requestId: requestData.id,
                 assignedTo: currentUser.id,
                 status: 'ACTIVE'
               }
             })
-            console.log(`📱 Создан чат с ${supplier.name}`)
+            console.log(`📱 Создан чат с ${supplier.name} (номер: ${normalizedPhone})`)
+          } else {
+            // Если нашли чат - обновляем номер до нормализованного (если отличается)
+            if (chat.phoneNumber !== normalizedPhone) {
+              await prisma.chat.update({
+                where: { id: chat.id },
+                data: { phoneNumber: normalizedPhone }
+              })
+              console.log(`📱 Обновлен номер чата ${supplier.name}: ${chat.phoneNumber} -> ${normalizedPhone}`)
+            }
           }
 
           // Создаем связь позиции с чатом

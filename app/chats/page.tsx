@@ -36,6 +36,8 @@ import {
   Link,
   LinkIcon,
   Plus,
+  Merge,
+  ArrowLeft,
 } from "lucide-react"
 import { MessageLogsDialog } from "@/components/message-logs-dialog"
 
@@ -46,6 +48,7 @@ interface Chat {
   requestId?: string
   lastMessage?: string
   lastMessageAt?: string
+  createdAt?: string
   status: 'ACTIVE' | 'WAITING' | 'COMPLETED' | 'ARCHIVED'
   unreadCount: number
   assignedTo?: string
@@ -130,6 +133,51 @@ export default function ChatsPage() {
   const [newChatPhone, setNewChatPhone] = useState("")
   const [newChatName, setNewChatName] = useState("")
   const [creatingChat, setCreatingChat] = useState(false)
+  
+  // Состояние для мобильного вида (нужно для переключения между списком и чатом)
+  const [isMobileView, setIsMobileView] = useState(false)
+  
+  // Состояние для объединения дубликатов
+  const [mergingChats, setMergingChats] = useState(false)
+  
+  // Определяем мобильный вид при загрузке и ресайзе
+  useEffect(() => {
+    const checkMobile = () => setIsMobileView(window.innerWidth < 768)
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
+
+  // Функция объединения дубликатов чатов
+  const mergeDuplicateChats = async () => {
+    if (!confirm('Объединить все дублирующиеся чаты (с одинаковыми номерами телефонов)?')) return
+    
+    try {
+      setMergingChats(true)
+      const response = await fetch('/api/chats/merge', {
+        method: 'PUT',
+        credentials: 'include'
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        if (data.data.duplicateGroupsProcessed > 0) {
+          alert(`✅ Объединено ${data.data.totalChatsMerged} чатов!\nПеренесено сообщений: ${data.data.totalMessagesMoved}\nПеренесено привязок: ${data.data.totalPositionChatsMoved}`)
+          loadChats()
+        } else {
+          alert('✅ Дубликатов не найдено!')
+        }
+      } else {
+        const error = await response.json()
+        alert(`❌ Ошибка: ${error.error}`)
+      }
+    } catch (error) {
+      console.error('Error merging chats:', error)
+      alert('❌ Ошибка при объединении чатов')
+    } finally {
+      setMergingChats(false)
+    }
+  }
 
   // Загрузка чатов
   const loadChats = async () => {
@@ -549,11 +597,79 @@ export default function ChatsPage() {
     )
   }
 
-  const formatTimestamp = (timestamp: string) => {
+  // Форматирование времени для сообщений (часы:минуты)
+  const formatMessageTime = (timestamp: string) => {
     return new Date(timestamp).toLocaleString('ru-RU', {
       hour: '2-digit',
       minute: '2-digit'
     })
+  }
+
+  // Полное форматирование даты и времени
+  const formatFullDateTime = (timestamp: string) => {
+    return new Date(timestamp).toLocaleString('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  }
+
+  // Форматирование времени для списка чатов (дата + время)
+  const formatTimestamp = (timestamp: string) => {
+    const date = new Date(timestamp)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+    
+    const timeStr = date.toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+    
+    if (diffDays === 0) {
+      // Сегодня - только время
+      return timeStr
+    } else if (diffDays === 1) {
+      // Вчера - "Вчера, 14:30"
+      return `Вчера, ${timeStr}`
+    } else if (diffDays < 7) {
+      // На этой неделе - "Пн, 14:30"
+      const dayStr = date.toLocaleString('ru-RU', { weekday: 'short' })
+      return `${dayStr}, ${timeStr}`
+    } else {
+      // Старше недели - "15.12, 14:30"
+      const dateStr = date.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit' })
+      return `${dateStr}, ${timeStr}`
+    }
+  }
+
+  // Получить дату для разделителя сообщений
+  const getMessageDateLabel = (timestamp: string) => {
+    const date = new Date(timestamp)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+    
+    if (diffDays === 0) {
+      return 'Сегодня'
+    } else if (diffDays === 1) {
+      return 'Вчера'
+    } else {
+      return date.toLocaleString('ru-RU', { 
+        day: 'numeric', 
+        month: 'long',
+        year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
+      })
+    }
+  }
+
+  // Проверить, нужен ли разделитель даты между сообщениями
+  const shouldShowDateSeparator = (currentMsg: ChatMessage, prevMsg: ChatMessage | null) => {
+    if (!prevMsg) return true
+    
+    const currentDate = new Date(currentMsg.timestamp).toDateString()
+    const prevDate = new Date(prevMsg.timestamp).toDateString()
+    
+    return currentDate !== prevDate
   }
 
 
@@ -699,415 +815,399 @@ export default function ChatsPage() {
   const currentChat = chats.find((c) => c.id === selectedChat)
 
   return (
-    <div className="h-[calc(100vh-8rem)] flex flex-col lg:flex-row gap-4 lg:gap-6">
-      {/* Основной чат - левая часть */}
-      <div className="flex-1 flex flex-col min-h-0">
+    <div className="h-[calc(100vh-4rem)] flex overflow-hidden bg-background">
+      {/* Список чатов - ЛЕВАЯ часть (фиксированная ширина) */}
+      <div className={`
+        ${selectedChat && isMobileView ? 'hidden' : 'flex'} 
+        md:flex flex-col
+        w-full md:w-80 lg:w-96
+        border-r bg-card
+        flex-shrink-0
+      `}>
+        {/* Шапка списка чатов */}
+        <div className="flex-shrink-0 border-b p-3 bg-muted/30">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="h-5 w-5 text-primary" />
+              <h1 className="text-lg font-bold">Чаты</h1>
+              <Badge variant="secondary" className="text-xs">
+                {filteredChats.length}
+              </Badge>
+            </div>
+            <div className="flex items-center gap-0.5">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowCreateChatDialog(true)}
+                className="h-8 w-8"
+                title="Новый чат"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  loadChats()
+                  if (selectedChat) loadMessages(selectedChat)
+                }}
+                disabled={loading}
+                className="h-8 w-8"
+                title="Обновить"
+              >
+                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              </Button>
+              <MessageLogsDialog 
+                trigger={
+                  <Button variant="ghost" size="icon" className="h-8 w-8" title="Логи">
+                    <FileText className="h-4 w-4" />
+                  </Button>
+                }
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={mergeDuplicateChats}
+                disabled={mergingChats}
+                className="h-8 w-8"
+                title="Объединить дубликаты"
+              >
+                {mergingChats ? <Loader2 className="h-4 w-4 animate-spin" /> : <Merge className="h-4 w-4" />}
+              </Button>
+            </div>
+          </div>
+          
+          {/* Поиск */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Поиск по имени, телефону, заявке..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-9 h-9"
+            />
+          </div>
+        </div>
+
+        {/* Список чатов */}
+        <ScrollArea className="flex-1">
+          <div className="p-2">
+            {loading ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-primary mb-3" />
+                <p className="text-sm text-muted-foreground">Загрузка...</p>
+              </div>
+            ) : filteredChats.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 px-4">
+                <MessageSquare className="h-12 w-12 text-muted-foreground mb-3" />
+                <p className="text-sm text-muted-foreground text-center">
+                  {searchTerm ? 'Ничего не найдено' : 'Нет чатов'}
+                </p>
+                {searchTerm && (
+                  <Button variant="ghost" size="sm" onClick={() => setSearchTerm('')} className="mt-2">
+                    Сбросить поиск
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {filteredChats.map((chat) => (
+                  <div
+                    key={chat.id}
+                    onClick={() => setSelectedChat(chat.id)}
+                    className={`
+                      relative p-3 rounded-lg cursor-pointer transition-colors
+                      ${selectedChat === chat.id 
+                        ? 'bg-primary/10 border-l-2 border-l-primary' 
+                        : 'hover:bg-muted/50'
+                      }
+                    `}
+                  >
+                    <div className="flex gap-3">
+                      {/* Аватар */}
+                      <div className="relative flex-shrink-0">
+                        <Avatar className="h-12 w-12">
+                          <AvatarFallback className="text-sm font-medium bg-gradient-to-br from-primary/20 to-primary/5">
+                            {getInitials(chat.contactName, chat.phoneNumber)}
+                          </AvatarFallback>
+                        </Avatar>
+                        {chat.status === 'ACTIVE' && (
+                          <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-background rounded-full" />
+                        )}
+                      </div>
+                      
+                      {/* Контент */}
+                      <div className="flex-1 min-w-0 overflow-hidden">
+                        {/* Имя и непрочитанные */}
+                        <div className="flex items-center justify-between gap-2 mb-0.5">
+                          <span 
+                            className="font-medium text-sm truncate"
+                            title={chat.contactName || formatPhoneNumber(chat.phoneNumber)}
+                          >
+                            {chat.contactName || formatPhoneNumber(chat.phoneNumber)}
+                          </span>
+                          {chat.unreadCount > 0 && (
+                            <Badge variant="destructive" className="h-5 min-w-5 px-1.5 text-xs flex-shrink-0">
+                              {chat.unreadCount > 99 ? '99+' : chat.unreadCount}
+                            </Badge>
+                          )}
+                        </div>
+                        
+                        {/* Последнее сообщение */}
+                        <p className="text-xs text-muted-foreground truncate mb-1">
+                          {chat.lastMessage || 'Нет сообщений'}
+                        </p>
+                        
+                        {/* Время последнего сообщения */}
+                        <div className="flex items-center gap-1 text-[11px] text-muted-foreground mb-1">
+                          <Clock className="h-3 w-3" />
+                          <span>
+                            {chat.lastMessageAt 
+                              ? formatTimestamp(chat.lastMessageAt)
+                              : chat.createdAt 
+                              ? formatTimestamp(chat.createdAt)
+                              : 'Время не указано'}
+                          </span>
+                        </div>
+                        
+                        {/* Теги: заявка, статус */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {chat.request?.requestNumber && (
+                            <Badge variant="outline" className="text-[10px] h-5 px-1.5">
+                              {chat.request.requestNumber}
+                            </Badge>
+                          )}
+                          <Badge 
+                            variant={chat.status === 'ACTIVE' ? 'default' : 'secondary'} 
+                            className="text-[10px] h-5 px-1.5"
+                          >
+                            {chat.status === 'ACTIVE' ? 'Активный' : 
+                             chat.status === 'WAITING' ? 'Ожидание' :
+                             chat.status === 'COMPLETED' ? 'Завершен' : 'Архив'}
+                          </Badge>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+        
+        {/* Нижняя панель */}
+        <div className="flex-shrink-0 border-t px-3 py-2 bg-muted/20">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+              <span>Онлайн</span>
+            </div>
+            <span>{chats.length} чатов</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Область чата - ПРАВАЯ часть (растягивается) */}
+      <div className={`
+        ${!selectedChat && isMobileView ? 'hidden' : 'flex'}
+        md:flex flex-1 flex-col min-w-0 bg-background
+      `}>
         {selectedChat ? (
-          <Card className="flex-1 flex flex-col h-full">
-            {/* Заголовок чата */}
-            <CardHeader className="border-b pb-4 flex-shrink-0">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex items-center space-x-3 min-w-0">
-                  <Avatar className="flex-shrink-0">
-                    <AvatarFallback>{getInitials(currentChat?.contactName, currentChat?.phoneNumber)}</AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0 flex-1">
-                    <CardTitle className="text-lg truncate">
-                      {currentChat?.contactName || formatPhoneNumber(currentChat?.phoneNumber || '')}
-                    </CardTitle>
-                    <CardDescription className="flex flex-wrap items-center gap-2 text-sm">
-                      {currentChat?.request?.requestNumber && (
-                        <span>Заявка {currentChat.request.requestNumber}</span>
-                      )}
-                      {currentChat?.assignedUser && (
-                        <span>Менеджер: {currentChat.assignedUser.name}</span>
-                      )}
-                      {currentChat?.status && getStatusBadge(currentChat.status)}
-                    </CardDescription>
+          <>
+            {/* Шапка чата */}
+            <div className="flex-shrink-0 border-b px-4 py-3 bg-card">
+              <div className="flex items-center gap-3">
+                {/* Кнопка назад для мобильных */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setSelectedChat(null)}
+                  className="md:hidden h-8 w-8 flex-shrink-0"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </Button>
+                
+                {/* Аватар */}
+                <Avatar className="h-10 w-10 flex-shrink-0">
+                  <AvatarFallback>{getInitials(currentChat?.contactName, currentChat?.phoneNumber)}</AvatarFallback>
+                </Avatar>
+                
+                {/* Информация о чате */}
+                <div className="flex-1 min-w-0">
+                  <h2 className="font-semibold truncate" title={currentChat?.contactName || formatPhoneNumber(currentChat?.phoneNumber || '')}>
+                    {currentChat?.contactName || formatPhoneNumber(currentChat?.phoneNumber || '')}
+                  </h2>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    {currentChat?.request?.requestNumber && (
+                      <Badge variant="outline" className="text-[10px] h-4">{currentChat.request.requestNumber}</Badge>
+                    )}
+                    {currentChat?.assignedUser && (
+                      <span className="truncate">{currentChat.assignedUser.name}</span>
+                    )}
                   </div>
                 </div>
-                <div className="flex items-center space-x-2 flex-shrink-0">
-                  {/* Кнопка привязки к заявке - всегда открывает диалог управления привязками */}
+                
+                {/* Кнопки управления - ВСЕГДА ВИДНЫ */}
+                <div className="flex items-center gap-1 flex-shrink-0">
                   <Button 
                     variant="outline" 
                     size="sm"
                     onClick={() => openLinkDialog(currentChat?.id || '')}
                     title={currentChat?.request ? "Управление привязками" : "Привязать к заявке"}
-                    className="hidden sm:flex"
                   >
-                    <Link className="h-4 w-4 mr-1" />
-                    {currentChat?.request ? 'Управление' : 'К заявке'}
+                    <LinkIcon className="h-4 w-4 mr-1" />
+                    <span className="hidden sm:inline">{currentChat?.request ? 'Привязки' : 'К заявке'}</span>
                   </Button>
                   
                   <Dialog>
                     <DialogTrigger asChild>
-                      <Button variant="outline" size="sm" className="hidden md:flex">
-                        <FileText className="mr-2 h-4 w-4" />
-                        Детали
+                      <Button variant="outline" size="sm">
+                        <FileText className="h-4 w-4 sm:mr-1" />
+                        <span className="hidden sm:inline">Детали</span>
                       </Button>
                     </DialogTrigger>
-                    <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                    <DialogContent className="max-w-lg">
                       <DialogHeader>
-                        <DialogTitle>Детали заявки {currentChat?.request?.requestNumber}</DialogTitle>
-                        <DialogDescription>Информация о заявке и ходе обработки</DialogDescription>
+                        <DialogTitle>Информация о чате</DialogTitle>
                       </DialogHeader>
-                      <ScrollArea className="max-h-[60vh]">
-                        <div className="space-y-4 pr-4">
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
-                              <Label className="text-sm font-medium">Клиент</Label>
-                              <p className="text-sm text-muted-foreground">{currentChat?.contactName || 'Не указан'}</p>
-                            </div>
-                            <div>
-                              <Label className="text-sm font-medium">Менеджер</Label>
-                              <p className="text-sm text-muted-foreground">{currentChat?.assignedUser?.name || 'Не назначен'}</p>
-                            </div>
-                            <div>
-                              <Label className="text-sm font-medium">Статус</Label>
-                              <p className="text-sm text-muted-foreground">{currentChat?.status}</p>
-                            </div>
-                            <div>
-                              <Label className="text-sm font-medium">Телефон</Label>
-                              <p className="text-sm text-muted-foreground">{formatPhoneNumber(currentChat?.phoneNumber || '')}</p>
-                            </div>
+                      <div className="space-y-3 text-sm">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <Label className="text-muted-foreground">Контакт</Label>
+                            <p className="font-medium">{currentChat?.contactName || 'Не указан'}</p>
                           </div>
                           <div>
-                            <Label className="text-sm font-medium">Описание заявки</Label>
-                            <p className="text-sm text-muted-foreground mt-1">
-                              {currentChat?.request?.description || 'Описание не указано'}
-                            </p>
+                            <Label className="text-muted-foreground">Телефон</Label>
+                            <p className="font-medium">{formatPhoneNumber(currentChat?.phoneNumber || '')}</p>
+                          </div>
+                          <div>
+                            <Label className="text-muted-foreground">Заявка</Label>
+                            <p className="font-medium">{currentChat?.request?.requestNumber || 'Не привязана'}</p>
+                          </div>
+                          <div>
+                            <Label className="text-muted-foreground">Менеджер</Label>
+                            <p className="font-medium">{currentChat?.assignedUser?.name || 'Не назначен'}</p>
                           </div>
                         </div>
-                      </ScrollArea>
+                        {currentChat?.request?.description && (
+                          <div>
+                            <Label className="text-muted-foreground">Описание заявки</Label>
+                            <p className="mt-1">{currentChat.request.description}</p>
+                          </div>
+                        )}
+                      </div>
                     </DialogContent>
                   </Dialog>
-                  <Button variant="outline" size="sm">
+                  
+                  <Button variant="ghost" size="icon" className="h-8 w-8">
                     <MoreVertical className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
-            </CardHeader>
+            </div>
 
             {/* Сообщения */}
-            <div className="flex-1 overflow-hidden relative">
-              <ScrollArea className="h-full" type="always">
-                <div className="p-4 space-y-4 pb-4">
-                  {messages.length === 0 ? (
-                    <div className="text-center py-12">
-                      <MessageSquare className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                      <p className="text-muted-foreground">Нет сообщений в этом чате</p>
-                      <p className="text-xs text-muted-foreground mt-2">Начните общение, отправив первое сообщение</p>
-                    </div>
-                  ) : (
-                    messages.map((message) => (
-                      <div
-                        key={message.id}
-                        className={`flex ${message.direction === "INCOMING" ? "justify-start" : "justify-end"}`}
-                      >
-                        <div
-                          className={`flex items-start space-x-2 max-w-[85%] sm:max-w-[70%] ${
-                            message.direction === "INCOMING" ? "" : "flex-row-reverse space-x-reverse"
-                          }`}
-                        >
-                          <Avatar className="h-8 w-8 flex-shrink-0">
-                            {message.direction === "OUTGOING" ? (
-                              <AvatarFallback className="bg-primary text-primary-foreground text-xs">
-                                {message.sender?.split(" ").map((n) => n[0]).join("") || "М"}
-                              </AvatarFallback>
-                            ) : (
-                              <AvatarFallback className="bg-secondary text-xs">
-                                {getInitials(currentChat?.contactName, currentChat?.phoneNumber)}
-                              </AvatarFallback>
-                            )}
-                          </Avatar>
-                          <div
-                            className={`rounded-2xl p-3 break-words shadow-sm ${
-                              message.direction === "INCOMING" 
-                                ? "bg-muted border border-border/50" 
-                                : "bg-primary text-primary-foreground"
-                            }`}
-                          >
-                            {message.direction === "OUTGOING" && message.sender && (
-                              <p className="text-xs font-medium mb-1 opacity-70">{message.sender}</p>
-                            )}
-                            
-                            {/* Отображение контента в зависимости от типа сообщения */}
-                            {message.messageType === 'DOCUMENT' ? (
-                              <DocumentMessage message={message} />
-                            ) : (
-                              <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
-                            )}
-
-                            {/* Статус сообщения */}
-                            {message.direction === "OUTGOING" && (
-                              <div className="flex items-center justify-between mt-2">
-                                <p className="text-xs opacity-70">{formatTimestamp(message.timestamp)}</p>
-                                <div className="flex items-center space-x-1">
-                                  {message.status === 'PENDING' && (
-                                    <Clock className="h-3 w-3 opacity-70" />
-                                  )}
-                                  {message.status === 'SENT' && (
-                                    <CheckCircle className="h-3 w-3 opacity-70" />
-                                  )}
-                                  {message.status === 'FAILED' && (
-                                    <XCircle className="h-3 w-3 text-red-500" />
-                                  )}
-                                </div>
-                              </div>
-                            )}
-
-                            {message.direction === "INCOMING" && (
-                              <p className="text-xs opacity-70 mt-2">{formatTimestamp(message.timestamp)}</p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </ScrollArea>
-            </div>
-
-            {/* Поле ввода */}
-            <div className="border-t p-4 flex-shrink-0">
-              <div className="flex items-end space-x-2">
-                <div className="flex-1">
-                  <Textarea
-                    placeholder="Введите сообщение..."
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                    className="min-h-[60px] max-h-[120px] resize-none"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault()
-                        handleSendMessage()
-                      }
-                    }}
-                  />
-                </div>
-                <div className="flex space-x-2">
-                  <Button variant="outline" size="sm" className="hidden sm:flex">
-                    <Paperclip className="h-4 w-4" />
-                  </Button>
-                  <Button 
-                    onClick={handleSendMessage} 
-                    size="sm"
-                    disabled={sendingMessage || !newMessage.trim()}
-                  >
-                    {sendingMessage ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Send className="h-4 w-4" />
-                    )}
-                  </Button>
-                </div>
-              </div>
-
-              {/* Статус */}
-              <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
-                <div className="flex items-center space-x-2">
-                  <div className="flex items-center space-x-1">
-                    <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
-                    <span className="hidden sm:inline">{currentChat?.assignedUser?.name || 'Менеджер'} онлайн</span>
-                    <span className="sm:hidden">Онлайн</span>
-                  </div>
-                </div>
-                <span className="hidden sm:inline">Enter для отправки</span>
-              </div>
-            </div>
-          </Card>
-        ) : (
-          <Card className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <MessageSquare className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-medium">Выберите чат</h3>
-              <p className="text-muted-foreground">Выберите чат из списка для начала общения</p>
-            </div>
-          </Card>
-        )}
-      </div>
-
-      {/* Список чатов - правая часть */}
-      <div className="w-full lg:w-80 flex flex-col order-first lg:order-last">
-        <Card className="flex-1 h-full flex flex-col">
-          {/* Верхняя навигационная панель */}
-          <div className="border-b bg-muted/30">
-            <div className="p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center space-x-2">
-                  <MessageSquare className="h-5 w-5 text-primary" />
-                  <h2 className="text-lg font-semibold">Чаты</h2>
-                  <Badge variant="secondary" className="text-xs">
-                    {filteredChats.length}
-                  </Badge>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setShowCreateChatDialog(true)}
-                    className="h-8 w-8 p-0"
-                    title="Создать новый чат"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      loadChats()
-                      if (selectedChat) {
-                        loadMessages(selectedChat)
-                      }
-                    }}
-                    disabled={loading}
-                    className="h-8 w-8 p-0"
-                    title="Обновить чаты"
-                  >
-                    <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-                  </Button>
-                  <MessageLogsDialog />
-                </div>
-              </div>
-              
-              {/* Поиск */}
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Поиск по клиентам и заявкам..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 h-9"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Список чатов с независимым скроллом */}
-          <div className="flex-1 relative overflow-hidden">
-            <ScrollArea className="h-full" type="always">
-              <div className="p-3">
-                {loading ? (
-                  <div className="text-center py-12">
-                    <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
-                    <p className="text-sm text-muted-foreground">Загрузка чатов...</p>
-                  </div>
-                ) : filteredChats.length === 0 ? (
-                  <div className="text-center py-12">
-                    <MessageSquare className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                    <p className="text-sm text-muted-foreground">
-                      {searchTerm ? 'Чаты не найдены' : 'Нет активных чатов'}
-                    </p>
-                    {searchTerm && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSearchTerm('')}
-                        className="mt-2"
-                      >
-                        Очистить поиск
-                      </Button>
-                    )}
+            <ScrollArea className="flex-1 bg-muted/20">
+              <div className="p-4 space-y-3">
+                {messages.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16">
+                    <MessageSquare className="h-16 w-16 text-muted-foreground mb-4" />
+                    <p className="text-muted-foreground">Нет сообщений</p>
+                    <p className="text-xs text-muted-foreground mt-1">Начните общение</p>
                   </div>
                 ) : (
-                  <div className="space-y-2">
-                    {filteredChats.map((chat) => (
-                      <div
-                        key={chat.id}
-                        className={`group relative p-3 rounded-xl cursor-pointer transition-all duration-200 border ${
-                          selectedChat === chat.id 
-                            ? "bg-primary/5 border-primary/20 shadow-sm" 
-                            : "hover:bg-accent/50 border-transparent hover:border-border"
-                        }`}
-                        onClick={() => setSelectedChat(chat.id)}
-                      >
-                        <div className="flex items-start space-x-3">
-                          <div className="relative">
-                            <Avatar className="h-11 w-11 flex-shrink-0 ring-2 ring-background">
-                              <AvatarFallback className="text-xs font-medium bg-gradient-to-br from-primary/20 to-primary/10">
-                                {getInitials(chat.contactName, chat.phoneNumber)}
-                              </AvatarFallback>
-                            </Avatar>
-                            {chat.status === 'ACTIVE' && (
-                              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-background rounded-full"></div>
-                            )}
-                          </div>
+                  messages.map((message, index) => (
+                    <div key={message.id}>
+                      {/* Разделитель дат */}
+                      {shouldShowDateSeparator(message, messages[index - 1] || null) && (
+                        <div className="flex justify-center my-4">
+                          <span className="bg-muted text-muted-foreground text-xs px-3 py-1 rounded-full">
+                            {getMessageDateLabel(message.timestamp)}
+                          </span>
+                        </div>
+                      )}
+                      
+                      {/* Сообщение */}
+                      <div className={`flex ${message.direction === 'OUTGOING' ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`
+                          max-w-[80%] sm:max-w-[70%] rounded-2xl px-4 py-2 shadow-sm
+                          ${message.direction === 'OUTGOING' 
+                            ? 'bg-primary text-primary-foreground rounded-br-md' 
+                            : 'bg-card border rounded-bl-md'
+                          }
+                        `}>
+                          {message.direction === 'OUTGOING' && message.sender && (
+                            <p className="text-xs font-medium opacity-70 mb-1">{message.sender}</p>
+                          )}
                           
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between mb-1">
-                              <h3 className="text-sm font-medium truncate pr-2">
-                                {chat.contactName || formatPhoneNumber(chat.phoneNumber)}
-                              </h3>
-                              <div className="flex items-center space-x-1 flex-shrink-0">
-                                {chat.lastMessageAt && (
-                                  <span className="text-xs text-muted-foreground">
-                                    {formatTimestamp(chat.lastMessageAt)}
-                                  </span>
-                                )}
-                                {chat.unreadCount > 0 && (
-                                  <Badge
-                                    variant="destructive"
-                                    className="h-5 w-5 p-0 flex items-center justify-center text-xs font-medium"
-                                  >
-                                    {chat.unreadCount > 99 ? '99+' : chat.unreadCount}
-                                  </Badge>
-                                )}
-                              </div>
-                            </div>
-                            
-                            <p className="text-xs text-muted-foreground mb-2 truncate leading-relaxed">
-                              {chat.lastMessage || 'Нет сообщений'}
-                            </p>
-                            
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center space-x-1.5">
-                                {chat.request?.requestNumber && (
-                                  <Badge variant="outline" className="text-xs px-2 py-0.5">
-                                    {chat.request.requestNumber}
-                                  </Badge>
-                                )}
-                                <div className="scale-90">
-                                  {getStatusBadge(chat.status)}
-                                </div>
-                              </div>
-                            </div>
-                            
-                            {chat.assignedUser && (
-                              <div className="flex items-center mt-2 pt-2 border-t border-border/50">
-                                <User className="h-3 w-3 text-muted-foreground mr-1" />
-                                <p className="text-xs text-muted-foreground truncate">
-                                  {chat.assignedUser.name}
-                                </p>
-                              </div>
+                          {message.messageType === 'DOCUMENT' ? (
+                            <DocumentMessage message={message} />
+                          ) : (
+                            <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                          )}
+                          
+                          {/* Время и статус */}
+                          <div className={`flex items-center gap-1 mt-1 ${message.direction === 'OUTGOING' ? 'justify-end' : ''}`}>
+                            <span className="text-[10px] opacity-60">{formatMessageTime(message.timestamp)}</span>
+                            {message.direction === 'OUTGOING' && (
+                              <>
+                                {message.status === 'PENDING' && <Clock className="h-3 w-3 opacity-60" />}
+                                {message.status === 'SENT' && <CheckCircle className="h-3 w-3 opacity-60" />}
+                                {message.status === 'DELIVERED' && <CheckCircle className="h-3 w-3 text-blue-300" />}
+                                {message.status === 'READ' && <CheckCircle className="h-3 w-3 text-blue-400" />}
+                                {message.status === 'FAILED' && <XCircle className="h-3 w-3 text-red-400" />}
+                              </>
                             )}
                           </div>
                         </div>
-                        
-                        {/* Индикатор выбранного чата */}
-                        {selectedChat === chat.id && (
-                          <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full"></div>
-                        )}
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))
                 )}
               </div>
             </ScrollArea>
-          </div>
-          
-          {/* Нижняя информационная панель */}
-          <div className="border-t bg-muted/20 p-3">
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <div className="flex items-center space-x-2">
-                <div className="flex items-center space-x-1">
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                  <span>Онлайн</span>
-                </div>
+
+            {/* Поле ввода */}
+            <div className="flex-shrink-0 border-t p-3 bg-card">
+              <div className="flex items-end gap-2">
+                <Button variant="ghost" size="icon" className="h-10 w-10 flex-shrink-0">
+                  <Paperclip className="h-5 w-5" />
+                </Button>
+                <Textarea
+                  placeholder="Введите сообщение..."
+                  value={newMessage}
+                  onChange={(e) => setNewMessage(e.target.value)}
+                  className="min-h-[44px] max-h-32 resize-none flex-1"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      handleSendMessage()
+                    }
+                  }}
+                />
+                <Button 
+                  onClick={handleSendMessage}
+                  disabled={sendingMessage || !newMessage.trim()}
+                  size="icon"
+                  className="h-10 w-10 flex-shrink-0"
+                >
+                  {sendingMessage ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+                </Button>
               </div>
-              <span>Всего: {chats.length} чатов</span>
+              <p className="text-[10px] text-muted-foreground text-center mt-1">Enter для отправки • Shift+Enter для переноса</p>
             </div>
+          </>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center p-8">
+            <div className="w-24 h-24 rounded-full bg-muted flex items-center justify-center mb-6">
+              <MessageSquare className="h-12 w-12 text-muted-foreground" />
+            </div>
+            <h2 className="text-xl font-semibold mb-2">Выберите чат</h2>
+            <p className="text-muted-foreground text-center max-w-sm">
+              Выберите чат из списка слева для просмотра сообщений и общения
+            </p>
           </div>
-        </Card>
+        )}
       </div>
       
       {/* Диалог привязки к заявке */}

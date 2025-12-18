@@ -16,9 +16,11 @@ export async function POST(request: NextRequest) {
   
   try {
     const body = await request.json()
-    const { chatId, messageData, fileName } = body
+    const { chatId, messageData, fileName, documentLink, documentId } = body
     
     console.log(`📄 [${requestId}] Обработка документа: ${fileName}`)
+    console.log(`📄 [${requestId}] Document Link: ${documentLink ? 'есть' : 'нет'}`)
+    console.log(`📄 [${requestId}] Document ID: ${documentId || messageData?.document?.id || 'нет'}`)
     
     // Находим чат и связанную заявку
     const chat = await prisma.chat.findUnique({
@@ -77,7 +79,9 @@ export async function POST(request: NextRequest) {
 
     // Скачиваем документ
     console.log(`📥 [${requestId}] Скачиваем документ...`)
-    const documentBuffer = await downloadDocument(document.id, requestId)
+    const docId = documentId || document?.id
+    const docLink = documentLink || document?.link
+    const documentBuffer = await downloadDocument(docId, requestId, docLink)
     
     // Сохраняем документ для отладки и прикрепления к заявке
     const savedDocumentPath = await saveDocument(documentBuffer, fileName, requestId)
@@ -251,9 +255,36 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * Скачивает документ через Whapi API
+ * Скачивает документ через Whapi API или по прямой ссылке
  */
-async function downloadDocument(documentId: string, requestId: string): Promise<Buffer> {
+async function downloadDocument(documentId: string, requestId: string, directLink?: string): Promise<Buffer> {
+  // Если есть прямая ссылка (Auto Download включён) - используем её
+  if (directLink) {
+    console.log(`📥 [${requestId}] Скачиваем по прямой ссылке: ${directLink}`)
+    
+    try {
+      const response = await fetch(directLink, {
+        method: 'GET',
+        headers: {
+          'Accept': '*/*'
+        }
+      })
+      
+      if (response.ok) {
+        const arrayBuffer = await response.arrayBuffer()
+        const buffer = Buffer.from(arrayBuffer)
+        
+        if (buffer.length > 100) {
+          console.log(`✅ [${requestId}] Документ скачан по прямой ссылке, размер: ${buffer.length} байт`)
+          return buffer
+        }
+      }
+      console.log(`⚠️ [${requestId}] Не удалось скачать по прямой ссылке: ${response.status}`)
+    } catch (err) {
+      console.log(`⚠️ [${requestId}] Ошибка при скачивании по прямой ссылке:`, err)
+    }
+  }
+  
   // Получаем токен Whapi из настроек
   const whapiSetting = await prisma.systemSetting.findUnique({
     where: { key: 'whapi_token' }
@@ -263,25 +294,71 @@ async function downloadDocument(documentId: string, requestId: string): Promise<
     throw new Error('Whapi token не найден в настройках')
   }
   
-  // Скачиваем файл через Whapi API
-  const downloadUrl = `https://gate.whapi.cloud/media/${documentId}`
+  const token = whapiSetting.value
   
-  const response = await fetch(downloadUrl, {
-    headers: {
-      'Authorization': `Bearer ${whapiSetting.value}`
+  // Пробуем несколько способов скачивания через API
+  const endpoints = [
+    `https://gate.whapi.cloud/media/${documentId}`,
+    `https://gate.whapi.cloud/files/${documentId}`,
+    `https://gate.whapi.cloud/media/download/${documentId}`
+  ]
+  
+  for (const downloadUrl of endpoints) {
+    console.log(`📥 [${requestId}] Пробуем скачать через API: ${downloadUrl}`)
+    
+    try {
+      // Пробуем GET запрос
+      const response = await fetch(downloadUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': '*/*'
+        }
+      })
+      
+      if (response.ok) {
+        const contentType = response.headers.get('content-type') || ''
+        // Проверяем что это файл, а не JSON с ошибкой
+        if (!contentType.includes('application/json')) {
+          const arrayBuffer = await response.arrayBuffer()
+          const buffer = Buffer.from(arrayBuffer)
+          
+          if (buffer.length > 100) {
+            console.log(`✅ [${requestId}] Документ скачан через ${downloadUrl}, размер: ${buffer.length} байт`)
+            return buffer
+          }
+        }
+      }
+      
+      // Если GET не сработал, пробуем POST
+      const postResponse = await fetch(downloadUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Accept': '*/*'
+        },
+        body: JSON.stringify({ media_id: documentId })
+      })
+      
+      if (postResponse.ok) {
+        const contentType = postResponse.headers.get('content-type') || ''
+        if (!contentType.includes('application/json')) {
+          const arrayBuffer = await postResponse.arrayBuffer()
+          const buffer = Buffer.from(arrayBuffer)
+          
+          if (buffer.length > 100) {
+            console.log(`✅ [${requestId}] Документ скачан через POST ${downloadUrl}, размер: ${buffer.length} байт`)
+            return buffer
+          }
+        }
+      }
+    } catch (err) {
+      console.log(`⚠️ [${requestId}] Ошибка при попытке ${downloadUrl}:`, err)
     }
-  })
-  
-  if (!response.ok) {
-    throw new Error(`Ошибка скачивания документа: ${response.statusText}`)
   }
   
-  const arrayBuffer = await response.arrayBuffer()
-  const buffer = Buffer.from(arrayBuffer)
-  
-  console.log(`📄 [${requestId}] Документ скачан, размер: ${buffer.length} байт`)
-  
-  return buffer
+  throw new Error(`Не удалось скачать документ. Убедитесь что Auto Download включён в настройках Whapi Cloud.`)
 }
 
 /**

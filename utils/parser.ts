@@ -1,6 +1,7 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { SearchResult } from '@/types/search';
+import { normalizePhoneNumber } from '@/lib/utils';
 
 const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
@@ -51,20 +52,28 @@ export async function parseContactInfo(url: string): Promise<Partial<SearchResul
       });
     }
 
-    // Поиск WhatsApp
-    const whatsappLinks = new Set<string>();
+    // Поиск WhatsApp - сохраняем только нормализованный номер
+    const whatsappNumbers = new Set<string>();
     
     // Ищем ссылки на WhatsApp
     $('a[href*="wa.me"], a[href*="whatsapp.com"], a[href*="api.whatsapp.com"]').each((_, el) => {
       const href = $(el).attr('href');
-      if (href) whatsappLinks.add(href);
+      if (href) {
+        // Нормализуем номер из ссылки
+        const normalized = normalizePhoneNumber(href);
+        if (normalized) {
+          whatsappNumbers.add(normalized);
+        }
+      }
     });
 
-    // Если нашли телефон, но не нашли WhatsApp, создаем ссылку на WhatsApp
-    if (whatsappLinks.size === 0 && phones.size > 0) {
+    // Если нашли телефон, но не нашли WhatsApp, используем первый телефон
+    if (whatsappNumbers.size === 0 && phones.size > 0) {
       const firstPhone = Array.from(phones)[0];
-      const cleanPhone = firstPhone.replace(/\D/g, '');
-      whatsappLinks.add(`https://wa.me/${cleanPhone}`);
+      const normalized = normalizePhoneNumber(firstPhone);
+      if (normalized) {
+        whatsappNumbers.add(normalized);
+      }
     }
 
     // Поиск адреса
@@ -142,7 +151,7 @@ export async function parseContactInfo(url: string): Promise<Partial<SearchResul
     return {
       email: emails[0] || '',
       phone: Array.from(phones)[0] || '',
-      whatsapp: Array.from(whatsappLinks)[0] || '',
+      whatsapp: Array.from(whatsappNumbers)[0] || '', // Нормализованный номер
       address: address || '',
       companyName: companyName || '',
       description: description || '',

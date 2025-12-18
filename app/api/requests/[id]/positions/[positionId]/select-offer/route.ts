@@ -73,11 +73,20 @@ export async function POST(
       )
     }
 
-    if (!selectedOffer || selectedOffer.requestId !== requestId || selectedOffer.positionId !== positionId) {
+    if (!selectedOffer || selectedOffer.requestId !== requestId) {
       return NextResponse.json(
-        { error: 'Выбранное коммерческое предложение не найдено или не относится к этой позиции' },
+        { error: 'Выбранное коммерческое предложение не найдено' },
         { status: 404 }
       )
+    }
+    
+    // Если КП не привязано к позиции - привязываем
+    if (!selectedOffer.positionId || selectedOffer.positionId !== positionId) {
+      console.log(`📎 Привязываем КП ${offerId} к позиции ${positionId}`)
+      await prisma.commercialOffer.update({
+        where: { id: offerId },
+        data: { positionId: positionId }
+      })
     }
 
     // Выполняем выбор в транзакции

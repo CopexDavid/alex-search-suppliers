@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
 import prisma from '@/lib/prisma'
+import { normalizePhoneNumber, getPhoneNumberVariants } from '@/lib/utils'
 
 /**
  * GET /api/chats
@@ -114,22 +115,60 @@ export async function POST(request: NextRequest) {
       )
     }
     
-    // Проверяем, не существует ли уже чат с этим номером
-    const existingChat = await prisma.chat.findUnique({
-      where: { phoneNumber }
-    })
+    // Нормализуем номер телефона
+    const normalizedPhone = normalizePhoneNumber(phoneNumber)
+    const phoneVariants = getPhoneNumberVariants(phoneNumber)
     
-    if (existingChat) {
+    if (!normalizedPhone) {
       return NextResponse.json(
-        { error: 'Чат с этим номером уже существует' },
+        { error: 'Некорректный номер телефона' },
         { status: 400 }
       )
     }
     
-    // Создаем новый чат
+    // Проверяем, не существует ли уже чат с этим номером (с учётом вариантов форматирования)
+    const existingChat = await prisma.chat.findFirst({
+      where: {
+        OR: phoneVariants.map(phone => ({ phoneNumber: phone }))
+      },
+      include: {
+        request: {
+          select: {
+            id: true,
+            requestNumber: true,
+            description: true,
+            status: true
+          }
+        },
+        assignedUser: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        }
+      }
+    })
+    
+    if (existingChat) {
+      // Если чат существует, обновляем номер до нормализованного и возвращаем его
+      if (existingChat.phoneNumber !== normalizedPhone) {
+        await prisma.chat.update({
+          where: { id: existingChat.id },
+          data: { phoneNumber: normalizedPhone }
+        })
+      }
+      return NextResponse.json({
+        success: true,
+        data: existingChat,
+        message: 'Чат с этим номером уже существует'
+      })
+    }
+    
+    // Создаем новый чат с нормализованным номером
     const chat = await prisma.chat.create({
       data: {
-        phoneNumber,
+        phoneNumber: normalizedPhone, // Всегда сохраняем нормализованный номер
         contactName,
         requestId,
         assignedTo: currentUser.id,
